@@ -8,6 +8,13 @@ repository = "https://github.com/hzauzengyuanzhao/motif-bridge"
 authors = ["Zengyuan Zhao"]
 keywords = ["bioinformatics", "motif", "MEME", "HOMER", "ChIP-seq"]
 categories = ["command-line-utilities", "science"]
+exclude = [
+    "perl_scripts/",
+    "python_scripts/",
+    "data/",
+    "test_output/",
+    "*.sh",
+]
 
 [dependencies]
 flate2 = "1"
