@@ -189,11 +189,10 @@ The project was validated on a server using the following real motif datasets:
 | Metric | Value |
 |---|---|
 | Total checks | 44 |
-| Passed | **43** ✅ |
+| Passed | **44** ✅ |
 | Failed | 0 |
 | Skipped | 0 |
 
-> **Note:** The total became 44 (rather than 43) because the test script was refined locally on the server before the final run, adding one additional check compared to the originally pushed version.
 
 ### Performance snapshot (large-file benchmark, 879 motifs)
 
