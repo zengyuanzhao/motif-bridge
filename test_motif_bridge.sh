@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 # =============================================================================
-# motif-bridge 全面测试脚本
-# 测试对象：Perl / Python / Rust 三种实现，meme2homer / homer2meme 双向转换
-# 用法：bash test_motif_bridge.sh [仓库根目录]
-# 示例：bash test_motif_bridge.sh ~/lab/motif-bridge
+# motif-bridge Comprehensive Test Script
+# Testing: Perl / Python / Rust implementations, meme2homer / homer2meme conversion
+# Usage: bash test_motif_bridge.sh [repo_root]
+# Example: bash test_motif_bridge.sh ~/lab/motif-bridge
 # =============================================================================
 
 set -euo pipefail
 
 # --------------------------------------------------------------------------- #
-# 路径配置
+# Path Configuration
 # --------------------------------------------------------------------------- #
 REPO_ROOT="${1:-$(pwd)}"
 DATA_DIR="$REPO_ROOT/data"
@@ -28,7 +28,7 @@ RUST_M2H="$RUST_BIN/meme2homer"
 RUST_H2M="$RUST_BIN/homer2meme"
 
 # --------------------------------------------------------------------------- #
-# 颜色输出
+# Color Output Functions
 # --------------------------------------------------------------------------- #
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 CYAN='\033[0;36m'; BOLD='\033[1m'; RESET='\033[0m'
@@ -37,13 +37,13 @@ PASS=0; FAIL=0; SKIP=0
 declare -a FAILURES=()
 
 log_section() { echo -e "\n${BOLD}${CYAN}══════════════════════════════════════════${RESET}"; echo -e "${BOLD}${CYAN}  $1${RESET}"; echo -e "${BOLD}${CYAN}══════════════════════════════════════════${RESET}"; }
-log_ok()   { echo -e "  ${GREEN}✔${RESET}  $1"; ((PASS++)); }
-log_fail() { echo -e "  ${RED}✘${RESET}  $1"; ((FAIL++)); FAILURES+=("$1"); }
-log_skip() { echo -e "  ${YELLOW}⊘${RESET}  $1 ${YELLOW}[SKIP]${RESET}"; ((SKIP++)); }
+log_ok()   { echo -e "  ${GREEN}✔${RESET}  $1"; ((++PASS)); }
+log_fail() { echo -e "  ${RED}✘${RESET}  $1"; ((++FAIL)); FAILURES+=("$1"); }
+log_skip() { echo -e "  ${YELLOW}⊘${RESET}  $1 ${YELLOW}[SKIP]${RESET}"; ((++SKIP)); }
 log_info() { echo -e "  ${YELLOW}ℹ${RESET}  $1"; }
 
 # --------------------------------------------------------------------------- #
-# 辅助函数
+# Helper Functions
 # --------------------------------------------------------------------------- #
 check_output() {
     local label="$1" file="$2" min_lines="${3:-5}"
@@ -51,12 +51,12 @@ check_output() {
         local lines
         lines=$(wc -l < "$file")
         if (( lines >= min_lines )); then
-            log_ok "$label → $(wc -l < "$file") 行，$(wc -c < "$file") 字节"
+            log_ok "$label → $(wc -l < "$file") lines, $(wc -c < "$file") bytes"
         else
-            log_fail "$label → 输出行数过少（$lines 行，期望 >=$min_lines）"
+            log_fail "$label → output has too few lines ($lines lines, expected >=$min_lines)"
         fi
     else
-        log_fail "$label → 输出文件为空或不存在"
+        log_fail "$label → output file is empty or does not exist"
     fi
 }
 
@@ -65,9 +65,9 @@ check_motif_count() {
     local count
     count=$(grep -c "$pattern" "$file" 2>/dev/null || echo 0)
     if (( count >= min_count )); then
-        log_ok "$label → 检测到 $count 个 motif"
+        log_ok "$label → detected $count motifs"
     else
-        log_fail "$label → motif 数量不足（$count，期望 >=$min_count）"
+        log_fail "$label → motif count insufficient ($count, expected >=$min_count)"
     fi
 }
 
@@ -77,11 +77,11 @@ check_roundtrip() {
     orig_n=$(grep -c "^MOTIF" "$orig" 2>/dev/null || echo 0)
     rt_n=$(grep -c "^MOTIF" "$roundtrip" 2>/dev/null || echo 0)
     if (( orig_n > 0 && rt_n == orig_n )); then
-        log_ok "$label 往返一致（MOTIF 数均为 $orig_n）"
+        log_ok "$label round-trip consistent (MOTIF count: $orig_n)"
     elif (( orig_n > 0 && rt_n > 0 )); then
-        log_fail "$label 往返有损（原始 $orig_n，还原 $rt_n）"
+        log_fail "$label round-trip lossy (original $orig_n, restored $rt_n)"
     else
-        log_fail "$label 往返检测失败（orig=$orig_n rt=$rt_n）"
+        log_fail "$label round-trip check failed (orig=$orig_n rt=$rt_n)"
     fi
 }
 
@@ -92,34 +92,34 @@ time_cmd() {
     "$@" > /dev/null 2>&1
     end=$(date +%s%3N)
     elapsed=$(( end - start ))
-    echo -e "    ${YELLOW}耗时: ${elapsed} ms${RESET}"
+    echo -e "    ${YELLOW}Time: ${elapsed} ms${RESET}"
 }
 
 # --------------------------------------------------------------------------- #
-# 环境检查
+# Environment Check
 # --------------------------------------------------------------------------- #
-log_section "0. 环境检查"
+log_section "0. Environment Check"
 
-[[ -d "$DATA_DIR" ]]      && log_ok "data/ 目录存在" || { log_fail "data/ 目录不存在: $DATA_DIR"; exit 1; }
-[[ -f "$HOMER_INPUT" ]]   && log_ok "homer.known.motifs 存在 ($(wc -l < "$HOMER_INPUT") 行)" || log_fail "homer.known.motifs 不存在"
-[[ -f "$MEME_SMALL" ]]    && log_ok "JASPAR2024_small.meme 存在 ($(wc -l < "$MEME_SMALL") 行)" || log_fail "JASPAR2024_small.meme 不存在"
-[[ -f "$MEME_LARGE" ]]    && log_ok "JASPAR2024_vertebrates.meme 存在 ($(wc -l < "$MEME_LARGE") 行)" || log_fail "JASPAR2024_vertebrates.meme 不存在"
+[[ -d "$DATA_DIR" ]]      && log_ok "data/ directory exists" || { log_fail "data/ directory not found: $DATA_DIR"; exit 1; }
+[[ -f "$HOMER_INPUT" ]]   && log_ok "homer.known.motifs exists ($(wc -l < "$HOMER_INPUT") lines)" || log_fail "homer.known.motifs not found"
+[[ -f "$MEME_SMALL" ]]    && log_ok "JASPAR2024_small.meme exists ($(wc -l < "$MEME_SMALL") lines)" || log_fail "JASPAR2024_small.meme not found"
+[[ -f "$MEME_LARGE" ]]    && log_ok "JASPAR2024_vertebrates.meme exists ($(wc -l < "$MEME_LARGE") lines)" || log_fail "JASPAR2024_vertebrates.meme not found"
 
-command -v perl   &>/dev/null && log_ok "Perl:   $(perl -e 'print $]')" || log_skip "Perl 未安装"
-command -v python3 &>/dev/null && log_ok "Python: $(python3 --version 2>&1)" || log_skip "Python3 未安装"
+command -v perl   &>/dev/null && log_ok "Perl:   $(perl -e 'print $]')" || log_skip "Perl not installed"
+command -v python3 &>/dev/null && log_ok "Python: $(python3 --version 2>&1)" || log_skip "Python3 not installed"
 
 if [[ -x "$RUST_M2H" && -x "$RUST_H2M" ]]; then
-    log_ok "Rust 二进制已编译: $RUST_BIN"
+    log_ok "Rust binaries compiled: $RUST_BIN"
     RUST_AVAIL=1
 else
-    log_info "Rust 二进制未找到，尝试编译..."
+    log_info "Rust binaries not found, attempting to compile..."
     if command -v cargo &>/dev/null; then
         echo "    cargo build --release ..."
         (cd "$REPO_ROOT/rust_scripts" && cargo build --release -q) \
-            && log_ok "Rust 编译成功" && RUST_AVAIL=1 \
-            || { log_fail "Rust 编译失败"; RUST_AVAIL=0; }
+            && log_ok "Rust compiled successfully" && RUST_AVAIL=1 \
+            || { log_fail "Rust compilation failed"; RUST_AVAIL=0; }
     else
-        log_skip "cargo 未安装，跳过 Rust 测试"
+        log_skip "cargo not installed, skipping Rust tests"
         RUST_AVAIL=0
     fi
 fi
@@ -127,77 +127,77 @@ fi
 mkdir -p "$OUT_DIR"
 
 # --------------------------------------------------------------------------- #
-# 1. meme2homer — 小文件
+# 1. meme2homer — Small File
 # --------------------------------------------------------------------------- #
 log_section "1. meme2homer (JASPAR2024_small.meme)"
 
 MEME_MOTIF_N=$(grep -c "^MOTIF" "$MEME_SMALL")
-log_info "输入 MOTIF 数: $MEME_MOTIF_N"
+log_info "Input MOTIF count: $MEME_MOTIF_N"
 
 if command -v perl &>/dev/null; then
     perl "$PERL_M2H" -i "$MEME_SMALL" -j JASPAR2024 > "$OUT_DIR/perl_m2h_small.homer" 2>/dev/null
     check_output  "Perl   meme2homer small" "$OUT_DIR/perl_m2h_small.homer"
-    check_motif_count "Perl   meme2homer motif 数" "$OUT_DIR/perl_m2h_small.homer" "^>" "$MEME_MOTIF_N"
+    check_motif_count "Perl   meme2homer motif count" "$OUT_DIR/perl_m2h_small.homer" "^>" "$MEME_MOTIF_N"
 fi
 
 if command -v python3 &>/dev/null; then
     python3 "$PY_M2H" -i "$MEME_SMALL" -j JASPAR2024 > "$OUT_DIR/py_m2h_small.homer" 2>/dev/null
     check_output  "Python meme2homer small" "$OUT_DIR/py_m2h_small.homer"
-    check_motif_count "Python meme2homer motif 数" "$OUT_DIR/py_m2h_small.homer" "^>" "$MEME_MOTIF_N"
+    check_motif_count "Python meme2homer motif count" "$OUT_DIR/py_m2h_small.homer" "^>" "$MEME_MOTIF_N"
 fi
 
 if (( RUST_AVAIL )); then
     "$RUST_M2H" -i "$MEME_SMALL" -j JASPAR2024 > "$OUT_DIR/rust_m2h_small.homer" 2>/dev/null
     check_output  "Rust   meme2homer small" "$OUT_DIR/rust_m2h_small.homer"
-    check_motif_count "Rust   meme2homer motif 数" "$OUT_DIR/rust_m2h_small.homer" "^>" "$MEME_MOTIF_N"
+    check_motif_count "Rust   meme2homer motif count" "$OUT_DIR/rust_m2h_small.homer" "^>" "$MEME_MOTIF_N"
 fi
 
 # --------------------------------------------------------------------------- #
-# 2. homer2meme — HOMER 已知 motif 库
+# 2. homer2meme — HOMER Known Motif Library
 # --------------------------------------------------------------------------- #
 log_section "2. homer2meme (homer.known.motifs)"
 
 HOMER_MOTIF_N=$(grep -c "^>" "$HOMER_INPUT")
-log_info "输入 MOTIF 数: $HOMER_MOTIF_N"
+log_info "Input MOTIF count: $HOMER_MOTIF_N"
 
 if command -v perl &>/dev/null; then
     perl "$PERL_H2M" -i "$HOMER_INPUT" > "$OUT_DIR/perl_h2m.meme" 2>/dev/null
     check_output      "Perl   homer2meme" "$OUT_DIR/perl_h2m.meme"
-    check_motif_count "Perl   homer2meme motif 数" "$OUT_DIR/perl_h2m.meme" "^MOTIF" "$HOMER_MOTIF_N"
+    check_motif_count "Perl   homer2meme motif count" "$OUT_DIR/perl_h2m.meme" "^MOTIF" "$HOMER_MOTIF_N"
 fi
 
 if command -v python3 &>/dev/null; then
     python3 "$PY_H2M" -i "$HOMER_INPUT" > "$OUT_DIR/py_h2m.meme" 2>/dev/null
     check_output      "Python homer2meme" "$OUT_DIR/py_h2m.meme"
-    check_motif_count "Python homer2meme motif 数" "$OUT_DIR/py_h2m.meme" "^MOTIF" "$HOMER_MOTIF_N"
+    check_motif_count "Python homer2meme motif count" "$OUT_DIR/py_h2m.meme" "^MOTIF" "$HOMER_MOTIF_N"
 fi
 
 if (( RUST_AVAIL )); then
     "$RUST_H2M" -i "$HOMER_INPUT" > "$OUT_DIR/rust_h2m.meme" 2>/dev/null
     check_output      "Rust   homer2meme" "$OUT_DIR/rust_h2m.meme"
-    check_motif_count "Rust   homer2meme motif 数" "$OUT_DIR/rust_h2m.meme" "^MOTIF" "$HOMER_MOTIF_N"
+    check_motif_count "Rust   homer2meme motif count" "$OUT_DIR/rust_h2m.meme" "^MOTIF" "$HOMER_MOTIF_N"
 fi
 
 # --------------------------------------------------------------------------- #
-# 3. 三实现输出一致性对比
+# 3. Cross-Implementation Output Consistency
 # --------------------------------------------------------------------------- #
-log_section "3. 三实现输出一致性对比"
+log_section "3. Cross-Implementation Consistency"
 
 if [[ -s "$OUT_DIR/perl_m2h_small.homer" && -s "$OUT_DIR/py_m2h_small.homer" ]]; then
     if diff -q "$OUT_DIR/perl_m2h_small.homer" "$OUT_DIR/py_m2h_small.homer" &>/dev/null; then
-        log_ok "meme2homer small: Perl == Python（逐字节一致）"
+        log_ok "meme2homer small: Perl == Python (byte-identical)"
     else
         DIFF_LINES=$(diff "$OUT_DIR/perl_m2h_small.homer" "$OUT_DIR/py_m2h_small.homer" | grep "^[<>]" | wc -l)
-        log_fail "meme2homer small: Perl ≠ Python（差异 $DIFF_LINES 行）"
+        log_fail "meme2homer small: Perl ≠ Python ($DIFF_LINES lines differ)"
     fi
 fi
 
 if (( RUST_AVAIL )) && [[ -s "$OUT_DIR/perl_m2h_small.homer" && -s "$OUT_DIR/rust_m2h_small.homer" ]]; then
     if diff -q "$OUT_DIR/perl_m2h_small.homer" "$OUT_DIR/rust_m2h_small.homer" &>/dev/null; then
-        log_ok "meme2homer small: Perl == Rust（逐字节一致）"
+        log_ok "meme2homer small: Perl == Rust (byte-identical)"
     else
         DIFF_LINES=$(diff "$OUT_DIR/perl_m2h_small.homer" "$OUT_DIR/rust_m2h_small.homer" | grep "^[<>]" | wc -l)
-        log_fail "meme2homer small: Perl ≠ Rust（差异 $DIFF_LINES 行）"
+        log_fail "meme2homer small: Perl ≠ Rust ($DIFF_LINES lines differ)"
     fi
 fi
 
@@ -205,9 +205,9 @@ if [[ -s "$OUT_DIR/perl_h2m.meme" && -s "$OUT_DIR/py_h2m.meme" ]]; then
     P_N=$(grep -c "^MOTIF" "$OUT_DIR/perl_h2m.meme")
     Y_N=$(grep -c "^MOTIF" "$OUT_DIR/py_h2m.meme")
     if (( P_N == Y_N )); then
-        log_ok "homer2meme: Perl == Python（MOTIF 数均为 $P_N）"
+        log_ok "homer2meme: Perl == Python (MOTIF count: $P_N)"
     else
-        log_fail "homer2meme: Perl($P_N) ≠ Python($Y_N) motif 数不一致"
+        log_fail "homer2meme: Perl($P_N) ≠ Python($Y_N) motif count mismatch"
     fi
 fi
 
@@ -215,16 +215,16 @@ if (( RUST_AVAIL )) && [[ -s "$OUT_DIR/perl_h2m.meme" && -s "$OUT_DIR/rust_h2m.m
     P_N=$(grep -c "^MOTIF" "$OUT_DIR/perl_h2m.meme")
     R_N=$(grep -c "^MOTIF" "$OUT_DIR/rust_h2m.meme")
     if (( P_N == R_N )); then
-        log_ok "homer2meme: Perl == Rust（MOTIF 数均为 $P_N）"
+        log_ok "homer2meme: Perl == Rust (MOTIF count: $P_N)"
     else
-        log_fail "homer2meme: Perl($P_N) ≠ Rust($R_N) motif 数不一致"
+        log_fail "homer2meme: Perl($P_N) ≠ Rust($R_N) motif count mismatch"
     fi
 fi
 
 # --------------------------------------------------------------------------- #
-# 4. 往返转换（Round-trip）
+# 4. Round-trip Conversion
 # --------------------------------------------------------------------------- #
-log_section "4. 往返转换 Round-trip"
+log_section "4. Round-trip Conversion"
 
 if command -v python3 &>/dev/null && [[ -s "$OUT_DIR/py_m2h_small.homer" ]]; then
     python3 "$PY_H2M" -i "$OUT_DIR/py_m2h_small.homer" > "$OUT_DIR/roundtrip_py_meme.meme" 2>/dev/null
@@ -236,9 +236,9 @@ if command -v python3 &>/dev/null && [[ -s "$OUT_DIR/py_h2m.meme" ]]; then
     ORIG_N=$(grep -c "^>" "$HOMER_INPUT")
     RT_N=$(grep -c "^>" "$OUT_DIR/roundtrip_py_homer.homer" 2>/dev/null || echo 0)
     if (( ORIG_N == RT_N )); then
-        log_ok "Python homer→meme→homer 往返一致（$ORIG_N 个 motif）"
+        log_ok "Python homer→meme→homer round-trip consistent ($ORIG_N motifs)"
     else
-        log_fail "Python homer→meme→homer 往返有损（orig=$ORIG_N rt=$RT_N）"
+        log_fail "Python homer→meme→homer round-trip lossy (orig=$ORIG_N rt=$RT_N)"
     fi
 fi
 
@@ -248,20 +248,20 @@ if (( RUST_AVAIL )) && [[ -s "$OUT_DIR/rust_m2h_small.homer" ]]; then
 fi
 
 # --------------------------------------------------------------------------- #
-# 5. 单 motif 提取（-e 参数）
+# 5. Single Motif Extraction (-e option)
 # --------------------------------------------------------------------------- #
-log_section "5. 单 motif 提取 (-e 参数)"
+log_section "5. Single Motif Extraction (-e option)"
 
 FIRST_MOTIF_ID=$(grep "^MOTIF" "$MEME_SMALL" | head -1 | awk '{print $2}')
-log_info "提取目标 motif ID: $FIRST_MOTIF_ID"
+log_info "Target motif ID for extraction: $FIRST_MOTIF_ID"
 
 if command -v python3 &>/dev/null; then
     python3 "$PY_M2H" -i "$MEME_SMALL" -e "$FIRST_MOTIF_ID" > "$OUT_DIR/extract_py.homer" 2>/dev/null
     N=$(grep -c "^>" "$OUT_DIR/extract_py.homer" 2>/dev/null || echo 0)
     if (( N == 1 )); then
-        log_ok "Python -e 提取：正好 1 个 motif"
+        log_ok "Python -e extraction: exactly 1 motif"
     else
-        log_fail "Python -e 提取：期望 1 个，得到 $N 个"
+        log_fail "Python -e extraction: expected 1, got $N"
     fi
 fi
 
@@ -269,34 +269,34 @@ if (( RUST_AVAIL )); then
     "$RUST_M2H" -i "$MEME_SMALL" -e "$FIRST_MOTIF_ID" > "$OUT_DIR/extract_rust.homer" 2>/dev/null
     N=$(grep -c "^>" "$OUT_DIR/extract_rust.homer" 2>/dev/null || echo 0)
     if (( N == 1 )); then
-        log_ok "Rust   -e 提取：正好 1 个 motif"
+        log_ok "Rust   -e extraction: exactly 1 motif"
     else
-        log_fail "Rust   -e 提取：期望 1 个，得到 $N 个"
+        log_fail "Rust   -e extraction: expected 1, got $N"
     fi
 fi
 
 # --------------------------------------------------------------------------- #
-# 6. stdin 管道测试
+# 6. stdin Pipe Test
 # --------------------------------------------------------------------------- #
-log_section "6. stdin 管道 (cat | ... -i -)"
+log_section "6. stdin Pipe (cat | ... -i -)"
 
 if command -v python3 &>/dev/null; then
     N=$(cat "$MEME_SMALL" | python3 "$PY_M2H" -i - 2>/dev/null | grep -c "^>" || echo 0)
-    (( N >= MEME_MOTIF_N )) && log_ok "Python stdin meme2homer → $N motif" || log_fail "Python stdin meme2homer → $N motif（期望 $MEME_MOTIF_N）"
+    (( N >= MEME_MOTIF_N )) && log_ok "Python stdin meme2homer → $N motifs" || log_fail "Python stdin meme2homer → $N motifs (expected $MEME_MOTIF_N)"
 
     N=$(cat "$HOMER_INPUT" | python3 "$PY_H2M" -i - 2>/dev/null | grep -c "^MOTIF" || echo 0)
-    (( N >= HOMER_MOTIF_N )) && log_ok "Python stdin homer2meme → $N motif" || log_fail "Python stdin homer2meme → $N motif（期望 $HOMER_MOTIF_N）"
+    (( N >= HOMER_MOTIF_N )) && log_ok "Python stdin homer2meme → $N motifs" || log_fail "Python stdin homer2meme → $N motifs (expected $HOMER_MOTIF_N)"
 fi
 
 if (( RUST_AVAIL )); then
     N=$(cat "$MEME_SMALL" | "$RUST_M2H" -i - 2>/dev/null | grep -c "^>" || echo 0)
-    (( N >= MEME_MOTIF_N )) && log_ok "Rust   stdin meme2homer → $N motif" || log_fail "Rust   stdin meme2homer → $N motif（期望 $MEME_MOTIF_N）"
+    (( N >= MEME_MOTIF_N )) && log_ok "Rust   stdin meme2homer → $N motifs" || log_fail "Rust   stdin meme2homer → $N motifs (expected $MEME_MOTIF_N)"
 fi
 
 # --------------------------------------------------------------------------- #
-# 7. gzip 压缩输入测试
+# 7. Gzip Compressed Input Test
 # --------------------------------------------------------------------------- #
-log_section "7. gzip 压缩输入 (.gz)"
+log_section "7. Gzip Compressed Input (.gz)"
 
 GZ_MEME="$OUT_DIR/JASPAR2024_small.meme.gz"
 GZ_HOMER="$OUT_DIR/homer.known.motifs.gz"
@@ -305,86 +305,98 @@ gzip -k -f -c "$HOMER_INPUT" > "$GZ_HOMER"
 
 if command -v python3 &>/dev/null; then
     N=$(python3 "$PY_M2H" -i "$GZ_MEME" 2>/dev/null | grep -c "^>" || echo 0)
-    (( N >= MEME_MOTIF_N )) && log_ok "Python meme2homer .gz → $N motif" || log_fail "Python meme2homer .gz → $N motif（期望 $MEME_MOTIF_N）"
+    (( N >= MEME_MOTIF_N )) && log_ok "Python meme2homer .gz → $N motifs" || log_fail "Python meme2homer .gz → $N motifs (expected $MEME_MOTIF_N)"
 
     N=$(python3 "$PY_H2M" -i "$GZ_HOMER" 2>/dev/null | grep -c "^MOTIF" || echo 0)
-    (( N >= HOMER_MOTIF_N )) && log_ok "Python homer2meme .gz → $N motif" || log_fail "Python homer2meme .gz → $N motif（期望 $HOMER_MOTIF_N）"
+    (( N >= HOMER_MOTIF_N )) && log_ok "Python homer2meme .gz → $N motifs" || log_fail "Python homer2meme .gz → $N motifs (expected $HOMER_MOTIF_N)"
 fi
 
 if (( RUST_AVAIL )); then
     N=$("$RUST_M2H" -i "$GZ_MEME" 2>/dev/null | grep -c "^>" || echo 0)
-    (( N >= MEME_MOTIF_N )) && log_ok "Rust   meme2homer .gz → $N motif" || log_fail "Rust   meme2homer .gz → $N motif（期望 $MEME_MOTIF_N）"
+    (( N >= MEME_MOTIF_N )) && log_ok "Rust   meme2homer .gz → $N motifs" || log_fail "Rust   meme2homer .gz → $N motifs (expected $MEME_MOTIF_N)"
 
     N=$("$RUST_H2M" -i "$GZ_HOMER" 2>/dev/null | grep -c "^MOTIF" || echo 0)
-    (( N >= HOMER_MOTIF_N )) && log_ok "Rust   homer2meme .gz → $N motif" || log_fail "Rust   homer2meme .gz → $N motif（期望 $HOMER_MOTIF_N）"
+    (( N >= HOMER_MOTIF_N )) && log_ok "Rust   homer2meme .gz → $N motifs" || log_fail "Rust   homer2meme .gz → $N motifs (expected $HOMER_MOTIF_N)"
 fi
 
 # --------------------------------------------------------------------------- #
-# 8. 大文件性能测试
+# 8. Large File Performance Test
 # --------------------------------------------------------------------------- #
-log_section "8. 大文件性能 (JASPAR2024_vertebrates.meme)"
+log_section "8. Large File Performance (JASPAR2024_vertebrates.meme)"
 
 LARGE_N=$(grep -c "^MOTIF" "$MEME_LARGE")
-log_info "大文件 MOTIF 数: $LARGE_N，文件大小: $(du -h "$MEME_LARGE" | cut -f1)"
+log_info "Large file MOTIF count: $LARGE_N, file size: $(du -h "$MEME_LARGE" | cut -f1)"
+
+if command -v perl &>/dev/null; then
+    log_info "Perl   meme2homer large file..."
+    time_cmd "perl meme2homer large" perl "$PERL_M2H" -i "$MEME_LARGE" -j JASPAR2024
+    perl "$PERL_M2H" -i "$MEME_LARGE" -j JASPAR2024 > "$OUT_DIR/perl_m2h_large.homer" 2>/dev/null
+    check_motif_count "Perl   meme2homer large" "$OUT_DIR/perl_m2h_large.homer" "^>" "$LARGE_N"
+fi
 
 if command -v python3 &>/dev/null; then
-    log_info "Python meme2homer 大文件..."
+    log_info "Python meme2homer large file..."
     time_cmd "python meme2homer large" python3 "$PY_M2H" -i "$MEME_LARGE" -j JASPAR2024
     python3 "$PY_M2H" -i "$MEME_LARGE" -j JASPAR2024 > "$OUT_DIR/py_m2h_large.homer" 2>/dev/null
     check_motif_count "Python meme2homer large" "$OUT_DIR/py_m2h_large.homer" "^>" "$LARGE_N"
 fi
 
 if (( RUST_AVAIL )); then
-    log_info "Rust   meme2homer 大文件..."
+    log_info "Rust   meme2homer large file..."
     time_cmd "rust meme2homer large" "$RUST_M2H" -i "$MEME_LARGE" -j JASPAR2024
     "$RUST_M2H" -i "$MEME_LARGE" -j JASPAR2024 > "$OUT_DIR/rust_m2h_large.homer" 2>/dev/null
     check_motif_count "Rust   meme2homer large" "$OUT_DIR/rust_m2h_large.homer" "^>" "$LARGE_N"
 
-    if [[ -s "$OUT_DIR/py_m2h_large.homer" && -s "$OUT_DIR/rust_m2h_large.homer" ]]; then
-        PL=$(grep -c "^>" "$OUT_DIR/py_m2h_large.homer")
+    if [[ -s "$OUT_DIR/perl_m2h_large.homer" && -s "$OUT_DIR/py_m2h_large.homer" && -s "$OUT_DIR/rust_m2h_large.homer" ]]; then
+        PL=$(grep -c "^>" "$OUT_DIR/perl_m2h_large.homer")
+        YL=$(grep -c "^>" "$OUT_DIR/py_m2h_large.homer")
         RL=$(grep -c "^>" "$OUT_DIR/rust_m2h_large.homer")
-        (( PL == RL )) && log_ok "大文件: Python($PL) == Rust($RL)" || log_fail "大文件: Python($PL) ≠ Rust($RL)"
+        if (( PL == YL && YL == RL )); then
+            log_ok "Large file: Perl($PL) == Python($YL) == Rust($RL)"
+        else
+            log_fail "Large file: results inconsistent Perl($PL) Python($YL) Rust($RL)"
+        fi
     fi
 fi
 
 # --------------------------------------------------------------------------- #
-# 9. 输出格式合规性检查
+# 9. Output Format Compliance Check
 # --------------------------------------------------------------------------- #
-log_section "9. 输出格式合规性"
+log_section "9. Output Format Compliance"
 
 if [[ -s "$OUT_DIR/py_h2m.meme" ]]; then
-    grep -q "^MEME version" "$OUT_DIR/py_h2m.meme"     && log_ok "MEME header 存在" || log_fail "MEME header 缺失"
-    grep -q "^ALPHABET= ACGT" "$OUT_DIR/py_h2m.meme"   && log_ok "ALPHABET 字段存在" || log_fail "ALPHABET 字段缺失"
-    grep -q "letter-probability matrix" "$OUT_DIR/py_h2m.meme" && log_ok "letter-probability matrix 字段存在" || log_fail "letter-probability matrix 字段缺失"
+    grep -q "^MEME version" "$OUT_DIR/py_h2m.meme"     && log_ok "MEME header present" || log_fail "MEME header missing"
+    grep -q "^ALPHABET= ACGT" "$OUT_DIR/py_h2m.meme"   && log_ok "ALPHABET field present" || log_fail "ALPHABET field missing"
+    grep -q "letter-probability matrix" "$OUT_DIR/py_h2m.meme" && log_ok "letter-probability matrix field present" || log_fail "letter-probability matrix field missing"
 fi
 
 if [[ -s "$OUT_DIR/py_m2h_small.homer" ]]; then
     BAD=$(grep "^>" "$OUT_DIR/py_m2h_small.homer" | awk -F'\t' 'NF!=6' | wc -l)
-    (( BAD == 0 )) && log_ok "HOMER header 全部为 6 列 tab 分隔" || log_fail "HOMER header 有 $BAD 行列数不等于 6"
+    (( BAD == 0 )) && log_ok "HOMER headers are all 6-column tab-separated" || log_fail "HOMER headers have $BAD lines with incorrect column count"
 fi
 
 if [[ -s "$OUT_DIR/py_h2m.meme" ]]; then
     BAD=$(awk '/^  [0-9]/{s=$1+$2+$3+$4; if(s<0.98||s>1.02) print NR": "s}' "$OUT_DIR/py_h2m.meme" | wc -l)
-    (( BAD == 0 )) && log_ok "MEME 矩阵行求和全部在 [0.98, 1.02]" || log_fail "MEME 矩阵有 $BAD 行概率和异常"
+    (( BAD == 0 )) && log_ok "MEME matrix row sums all within [0.98, 1.02]" || log_fail "MEME matrix has $BAD rows with abnormal probability sum"
 fi
 
 # --------------------------------------------------------------------------- #
-# 汇总报告
+# Summary Report
 # --------------------------------------------------------------------------- #
 TOTAL=$(( PASS + FAIL + SKIP ))
 echo ""
 echo -e "${BOLD}══════════════════════════════════════════${RESET}"
-echo -e "${BOLD}  测试结果汇总${RESET}"
+echo -e "${BOLD}  Test Summary${RESET}"
 echo -e "${BOLD}══════════════════════════════════════════${RESET}"
-echo -e "  总计:  $TOTAL"
-echo -e "  ${GREEN}通过:  $PASS${RESET}"
-echo -e "  ${RED}失败:  $FAIL${RESET}"
-echo -e "  ${YELLOW}跳过:  $SKIP${RESET}"
-echo -e "  输出目录: $OUT_DIR"
+echo -e "  Total:  $TOTAL"
+echo -e "  ${GREEN}Pass:   $PASS${RESET}"
+echo -e "  ${RED}Fail:   $FAIL${RESET}"
+echo -e "  ${YELLOW}Skip:   $SKIP${RESET}"
+echo -e "  Output: $OUT_DIR"
 
 if (( ${#FAILURES[@]} > 0 )); then
     echo ""
-    echo -e "${RED}${BOLD}  失败项列表:${RESET}"
+    echo -e "${RED}${BOLD}  Failures:${RESET}"
     for f in "${FAILURES[@]}"; do
         echo -e "  ${RED}✘${RESET}  $f"
     done
@@ -392,9 +404,9 @@ fi
 
 echo ""
 if (( FAIL == 0 )); then
-    echo -e "${GREEN}${BOLD}  🎉 所有测试通过！${RESET}"
+    echo -e "${GREEN}${BOLD} All tests passed!${RESET}"
     exit 0
 else
-    echo -e "${RED}${BOLD}  ❌ 有 $FAIL 项测试失败，请检查上方输出${RESET}"
+    echo -e "${RED}${BOLD} $FAIL test(s) failed, check output above${RESET}"
     exit 1
 fi
