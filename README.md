@@ -1,8 +1,42 @@
 # motif-bridge
 
+[![Bioconda](https://img.shields.io/conda/vn/bioconda/motif-bridge.svg)](https://anaconda.org/bioconda/motif-bridge)
+[![Crates.io](https://img.shields.io/crates/v/motif-bridge.svg)](https://crates.io/crates/motif-bridge)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 A cross-language toolkit for bridging the **MEME** and **HOMER** motif analysis ecosystems.
 
 MEME and HOMER are the two dominant platforms for ChIP-seq motif analysis, but their motif file formats are fundamentally incompatible. This project provides bidirectional, lossless conversion tools implemented in **Perl**, **Python**, and **Rust**, allowing seamless interoperability between the two ecosystems.
+
+---
+
+## Installation
+
+### Bioconda (recommended)
+
+```bash
+conda install -c bioconda motif-bridge
+```
+
+This installs the precompiled Rust binaries (`meme2homer` and `homer2meme`) directly to your PATH. No compiler or manual build steps required.
+
+### Cargo (Rust)
+
+```bash
+cargo install motif-bridge
+```
+
+### From source
+
+```bash
+git clone https://github.com/hzauzengyuanzhao/motif-bridge
+cd motif-bridge/rust_scripts
+cargo build --release
+# Produces: target/release/meme2homer
+#           target/release/homer2meme
+```
+
+For the Perl and Python implementations, no installation is needed — scripts can be run directly.
 
 ---
 
@@ -54,13 +88,16 @@ All three language implementations share **identical CLI flags** and produce mat
 ### MEME → HOMER
 
 ```bash
+# Bioconda / Cargo install
+meme2homer -i motifs.meme -j JASPAR2026 > motifs.homer
+
 # Perl
 perl perl_scripts/meme2homer.pl -i motifs.meme -j JASPAR2026 > motifs.homer
 
 # Python
 python3 python_scripts/meme2homer.py -i motifs.meme -j JASPAR2026 > motifs.homer
 
-# Rust (build first)
+# Rust (build from source)
 cd rust_scripts && cargo build --release && cd ..
 ./rust_scripts/target/release/meme2homer -i motifs.meme -j JASPAR2026 > motifs.homer
 ```
@@ -68,27 +105,18 @@ cd rust_scripts && cargo build --release && cd ..
 ### HOMER → MEME
 
 ```bash
+# Bioconda / Cargo install
+homer2meme -i motifs.homer > motifs.meme
+
 # Perl
 perl perl_scripts/homer2meme.pl -i motifs.homer > motifs.meme
 
 # Python
 python3 python_scripts/homer2meme.py -i motifs.homer > motifs.meme
 
-# Rust (build first)
+# Rust (build from source)
 cd rust_scripts && cargo build --release && cd ..
 ./rust_scripts/target/release/homer2meme -i motifs.homer > motifs.meme
-```
-
-### Building the Rust binaries
-
-```bash
-cd rust_scripts
-cargo build --release
-# Produces: rust_scripts/target/release/meme2homer
-#           rust_scripts/target/release/homer2meme
-
-# Or install to PATH:
-cargo install --path .
 ```
 
 ---
@@ -193,7 +221,6 @@ The project was validated on a server using the following real motif datasets:
 | Failed | 0 |
 | Skipped | 0 |
 
-
 ### Performance snapshot (large-file benchmark, 879 motifs)
 
 | Implementation | Time | Relative speed |
@@ -208,6 +235,7 @@ The project was validated on a server using the following real motif datasets:
 
 | Scenario | Recommended |
 |---|---|
+| Quickest install (conda environment) | `conda install -c bioconda motif-bridge` |
 | Server without compiler, Perl available | `perl_scripts/` |
 | Conda / Python environment | `python_scripts/` |
 | Large-scale batch processing | `rust_scripts/` |
