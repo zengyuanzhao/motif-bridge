@@ -243,7 +243,3 @@ The project was validated on a server using the following real motif datasets:
 | Fastest runtime on tested server data | `rust_scripts/` |
 
 ---
-
-## License
-
-MIT
