@@ -1,0 +1,23 @@
+MEME version 4
+
+ALPHABET= ACGT
+
+strands: + -
+
+Background letter frequencies
+A 0.25 C 0.25 G 0.25 T 0.25
+
+MOTIF CTCF_logodds CTCF log-odds test
+
+letter-probability matrix: alength= 4 w= 3 nsites= 20 E= 0
+  0.469877  0.143793  0.143793  0.242538
+  0.157813  0.147369  0.161149  0.533668
+  0.136621  0.134213  0.171864  0.557302
+
+MOTIF FOXA1_logodds FOXA1 log-odds test
+
+letter-probability matrix: alength= 4 w= 3 nsites= 20 E= 0
+  0.147549  0.155401  0.534318  0.162732
+  0.157635  0.147203  0.524993  0.170169
+  0.136621  0.134213  0.557302  0.171864
+

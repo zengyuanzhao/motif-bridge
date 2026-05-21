@@ -40,6 +40,8 @@ cargo build --release
 
 For the Perl and Python implementations, no installation is needed. The scripts can be run directly.
 
+**Requirements:** Python 3.8+, Perl 5 with `IO::Uncompress::Gunzip`, or Rust 1.70+.
+
 ---
 
 ## Why This Exists
@@ -132,15 +134,19 @@ cd rust_scripts && cargo build --release && cd ..
 | `-e <string>` | Extract only the specified motif by ID or name | *(all motifs)* |
 | `-b <float>` | Background nucleotide probability | `0.25` |
 | `-t <float>` | Threshold offset subtracted from log-odds score (log2 bits) | `4.0` |
+| `-f, --format <fmt>` | Output format: `homer` or `json` | `homer` |
+| `--alphabet <string>` | Alphabet (`ACGT`, `ACGU`, or `PROTEIN`) | `ACGT` |
 | `-h` | Show help | |
 
 ### homer2meme (all implementations)
 
 | Flag | Description | Default |
 |---|---|---|
-| `-i <file>` | Input HOMER motif file (`-` for stdin, `.gz` supported) | *(required)* |
+| `-i <file>` | Input HOMER motif file (`-` for stdin, `.gz` supported, `.json` supported) | *(required)* |
 | `-e <string>` | Extract only the specified motif by ID or description | *(all motifs)* |
 | `-a <float>` | Pseudocount for log-odds to probability conversion | `0.01` |
+| `-f, --format <fmt>` | Input format: `homer` or `json` | `homer` |
+| `--input-format <fmt>` | Matrix type: `auto`, `logodds`, or `probability` | `auto` |
 | `-h` | Show help | |
 
 Note: `homer2meme` auto-detects log-odds vs probability rows by checking whether row sum is near 1.0 (`[0.98, 1.02]`). This is a practical heuristic and may be ambiguous for edge-case inputs whose log-odds rows also sum near 1.0.
@@ -212,25 +218,27 @@ The project was validated on a server using the following real motif datasets:
 
 ### Test coverage
 
+Run `bash test_motif_bridge.sh` locally. The test suite covers:
+
 | Test stage | Description |
 |---|---|
-| 0. Environment check | Verify data files, Perl, Python, and Rust availability |
-| 1. meme2homer | MEME to HOMER conversion on small file (12 motifs) |
-| 2. homer2meme | HOMER to MEME conversion on known motif library (436 motifs) |
-| 3. Output consistency | Cross-language diff between Perl, Python, and Rust outputs |
-| 4. Round-trip | Validate matrix-level consistency for `meme→homer→meme` and `homer→meme→homer` conversions |
-| 5. Single motif extraction | Test `-e` flag for extracting a named motif |
-| 6. stdin pipeline | Test `cat file | tool -i -` |
-| 7. gzip input | Test automatic decompression of `.gz` inputs |
-| 8. Large-file performance | Benchmark all three implementations on 879-motif dataset |
-| 9. Format compliance | Validate MEME headers, HOMER column counts, probability row sums |
+| 1. Cross-language consistency | Diff between Perl, Python, and Rust outputs |
+| 2. Single motif extraction | Test `-e` flag for extracting a named motif |
+| 3. stdin pipeline | Test `cat file | tool -i -` |
+| 4. gzip input | Test automatic decompression of `.gz` inputs |
+| 5. Round-trip | Validate matrix-level consistency for `meme→homer→meme` and `homer→meme→homer` |
+| 6. Log-odds conversion | Verify log-odds to probability conversion |
+| 7. Format compliance | Validate MEME headers, HOMER column counts, probability row sums |
+| 8. JSON I/O | Validate JSON output structure and round-trip |
+| 9. Explicit input format | Test `--input-format` flag (auto/logodds/probability) |
+| 10. Alphabet support | Test `--alphabet` flag for RNA/Protein motifs |
 
-### Latest server-side result
+### Latest test result
 
 | Metric | Value |
 |---|---|
-| Total checks | 44 |
-| Passed | **44** ✅ |
+| Total checks | 40 |
+| Passed | **40** ✅ |
 | Failed | 0 |
 | Skipped | 0 |
 
