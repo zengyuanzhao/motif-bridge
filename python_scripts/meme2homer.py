@@ -14,27 +14,17 @@ Requires: Python 3.8+, no external dependencies
 
 import argparse
 import gzip
-import json
 import sys
-from typing import List
 
 try:
-    from motif_bridge.core import Motif
+    from motif_bridge.io import read_meme, write_homer, write_json
 except ImportError:
     import os
-
     # Add project root to sys.path
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     if root not in sys.path:
         sys.path.insert(0, root)
-    from motif_bridge.core import Motif
-
-ALPHABETS = {
-    "ACGT": "ACGT",
-    "ACGU": "ACGU",
-    "PROTEIN": "ACDEFGHIKLMNPQRSTVWY",
-}
-
+    from motif_bridge.io import read_meme, write_homer, write_json
 
 def bg_prob(value: str) -> float:
     try:
@@ -44,7 +34,6 @@ def bg_prob(value: str) -> float:
     if not (0 < v <= 1):
         raise argparse.ArgumentTypeError("-b must be in (0, 1].")
     return v
-
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -124,7 +113,6 @@ def parse_args() -> argparse.Namespace:
     )
     return parser.parse_args()
 
-
 def open_input(path: str):
     """Open plain, gzip, or stdin input."""
     if path == "-":
@@ -134,186 +122,38 @@ def open_input(path: str):
     else:
         return open(path, "r", encoding="utf-8")
 
-
-def print_motif_homer(
-    motif_id: str,
-    description: str,
-    matrix: List[List[float]],
-    background: float,
-    threshold_offset: float,
-) -> None:
-    """Print a single motif in HOMER format (6 tab-separated header fields)."""
-    m = Motif(motif_id, description, matrix)
-    score = m.calculate_score(background, threshold_offset)
-    print(f">{motif_id}\t{description}\t{score:.6f}\t0\t0\t0")
-    for row in matrix:
-        print("\t".join(f"{v:.6f}" for v in row))
-
-
-def process_and_output_motif(
-    m: Motif,
-    background: float,
-    threshold_offset: float,
-    output_format: str,
-    do_rc: bool,
-    trim_edges: float,
-    min_ic: float,
-    motifs_list: List[dict],
-) -> None:
-    if do_rc:
-        m.reverse_complement()
-    if trim_edges > 0:
-        m.trim_edges(trim_edges)
-    if not m.matrix:
-        return
-    if min_ic > 0 and m.total_ic() < min_ic:
-        return
-
-    if output_format == "json":
-        motifs_list.append(m.to_dict())
-    else:
-        print_motif_homer(m.id, m.description, m.matrix, background, threshold_offset)
-
-
-def parse_and_convert(
-    fh,
-    db: str,
-    motif_name: str,
-    extract: str,
-    background: float,
-    threshold_offset: float,
-    output_format: str = "homer",
-    alphabet: str = "ACGT",
-    do_rc: bool = False,
-    trim_edges: float = 0.0,
-    min_ic: float = 0.0,
-) -> List[dict]:
-    in_motif = False
-    in_matrix = False
-    motif_id = ""
-    description = ""
-    matrix: List[List[float]] = []
-    motifs: List[dict] = []
-    expected_cols = len(ALPHABETS.get(alphabet, alphabet))
-
-    for raw_line in fh:
-        line = raw_line.rstrip("\n")
-        stripped = line.strip()
-
-        if stripped.startswith("MOTIF"):
-            if in_motif and matrix:
-                m = Motif(motif_id, description, matrix, alphabet)
-                process_and_output_motif(
-                    m,
-                    background,
-                    threshold_offset,
-                    output_format,
-                    do_rc,
-                    trim_edges,
-                    min_ic,
-                    motifs,
-                )
-
-            parts = stripped.split()
-            mid = parts[1] if len(parts) > 1 else ""
-            if not mid:
-                sys.stderr.write(f"Warning: skipping malformed MOTIF line without ID: {stripped}\n")
-                in_motif = False
-                in_matrix = False
-                matrix = []
-                continue
-            original_name = " ".join(parts[2:]) if len(parts) > 2 else (mid or "motif")
-
-            if extract and mid != extract and original_name != extract:
-                in_motif = False
-                in_matrix = False
-                matrix = []
-                continue
-
-            motif_id = mid
-            description = f"{motif_name or original_name}/{db}"
-            matrix = []
-            in_motif = True
-            in_matrix = False
+def process_motifs(motifs, args):
+    """Filter and apply operations to motifs."""
+    for m in motifs:
+        original_name = m.description
+        if args.e and m.id != args.e and original_name != args.e:
             continue
-
-        if not in_motif:
+            
+        m.description = f"{args.k or original_name}/{args.j}"
+        
+        if args.rc:
+            m.reverse_complement()
+        if args.trim_edges > 0:
+            m.trim_edges(args.trim_edges)
+        if not m.matrix:
             continue
-
-        if stripped.startswith("URL"):
+        if args.min_ic > 0 and m.total_ic() < args.min_ic:
             continue
-        if stripped.startswith("//"):
-            if matrix:
-                m = Motif(motif_id, description, matrix, alphabet)
-                process_and_output_motif(
-                    m,
-                    background,
-                    threshold_offset,
-                    output_format,
-                    do_rc,
-                    trim_edges,
-                    min_ic,
-                    motifs,
-                )
-            matrix = []
-            in_motif = False
-            in_matrix = False
-            continue
-
-        if stripped.startswith("letter-probability matrix:"):
-            in_matrix = True
-            if "alength=" in stripped:
-                try:
-                    alength = int(stripped.split("alength=")[1].split()[0])
-                    expected_cols = alength
-                except (ValueError, IndexError):
-                    pass
-            continue
-
-        if in_matrix and stripped and (stripped[0].isdigit() or stripped.startswith(".")):
-            tokens = stripped.split()
-            try:
-                row = [float(t) for t in tokens]
-                if len(row) == expected_cols:
-                    matrix.append(row)
-                elif row:
-                    sys.stderr.write(
-                        f"Warning: skipping malformed matrix row "
-                        f"(expected {expected_cols} cols, got {len(row)}): {stripped}\n"
-                    )
-            except ValueError:
-                pass
-
-    if in_motif and matrix:
-        m = Motif(motif_id, description, matrix, alphabet)
-        process_and_output_motif(
-            m, background, threshold_offset, output_format, do_rc, trim_edges, min_ic, motifs
-        )
-
-    return motifs
-
+            
+        yield m
 
 def main() -> None:
     args = parse_args()
     fh = None
     try:
         fh = open_input(args.i)
-        motifs = parse_and_convert(
-            fh,
-            db=args.j,
-            motif_name=args.k,
-            extract=args.e,
-            background=args.b,
-            threshold_offset=args.t,
-            output_format=args.format,
-            alphabet=args.alphabet or "ACGT",
-            do_rc=args.rc,
-            trim_edges=args.trim_edges,
-            min_ic=args.min_ic,
-        )
+        raw_motifs = read_meme(fh, alphabet=args.alphabet or "ACGT")
+        processed_motifs = process_motifs(raw_motifs, args)
+        
         if args.format == "json":
-            json.dump({"version": "1.0", "source": "meme", "motifs": motifs}, sys.stdout, indent=2)
-            print()
+            write_json(processed_motifs, sys.stdout)
+        else:
+            write_homer(processed_motifs, sys.stdout, background=args.b, threshold_offset=args.t)
     except FileNotFoundError:
         sys.exit(f"Error: Cannot open file: {args.i}")
     except BrokenPipeError:
@@ -324,7 +164,6 @@ def main() -> None:
                 fh.close()
             except Exception:
                 pass
-
 
 if __name__ == "__main__":
     main()

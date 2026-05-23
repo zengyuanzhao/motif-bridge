@@ -15,22 +15,15 @@
 //!   cat motifs.homer | homer2meme -i -
 
 use flate2::read::MultiGzDecoder;
-use motif_bridge::Motif;
+use motif_bridge::io::{read_homer, read_json, write_meme, MatrixType};
 use std::env;
 use std::fs::File;
-use std::io::{self, BufRead, BufReader};
+use std::io::{self, BufRead, BufReader, BufWriter};
 
 #[derive(Clone, Copy)]
 enum InputFormat {
     Homer,
     Json,
-}
-
-#[derive(Clone, Copy)]
-enum MatrixType {
-    Auto,
-    Logodds,
-    Probability,
 }
 
 struct Args {
@@ -54,6 +47,7 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
     let mut trim_edges = 0.0_f64;
     let mut min_ic = 0.0_f64;
     let mut i = 1usize;
+
     while i < argv.len() {
         match argv[i].as_str() {
             "-i" => {
@@ -82,21 +76,10 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
                     return Err(format!("-a must be > 0, got {}", pseudocount));
                 }
             }
-            "-f" => {
+            "-f" | "--format" => {
                 i += 1;
                 if i >= argv.len() {
-                    return Err("-f requires a value".into());
-                }
-                input_format = match argv[i].as_str() {
-                    "homer" => InputFormat::Homer,
-                    "json" => InputFormat::Json,
-                    other => return Err(format!("unknown format: {}", other)),
-                };
-            }
-            "--format" => {
-                i += 1;
-                if i >= argv.len() {
-                    return Err("--format requires a value".into());
+                    return Err(format!("{} requires a value", argv[i - 1]));
                 }
                 input_format = match argv[i].as_str() {
                     "homer" => InputFormat::Homer,
@@ -128,7 +111,7 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
                     .parse::<f64>()
                     .map_err(|_| format!("invalid --trim-edges value: {}", argv[i]))?;
                 if trim_edges < 0.0 {
-                    return Err("--trim-edges must be >= 0".into());
+                    return Err(format!("--trim-edges must be >= 0, got {}", trim_edges));
                 }
             }
             "--min-ic" => {
@@ -140,7 +123,7 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
                     .parse::<f64>()
                     .map_err(|_| format!("invalid --min-ic value: {}", argv[i]))?;
                 if min_ic < 0.0 {
-                    return Err("--min-ic must be >= 0".into());
+                    return Err(format!("--min-ic must be >= 0, got {}", min_ic));
                 }
             }
             "-h" | "--help" => {
@@ -182,9 +165,9 @@ Options:
     -a <float>   Pseudocount for log-odds -> probability conversion (default: 0.01)
     -f, --format <fmt>  Input format: homer (default) or json
     --input-format <fmt>  Matrix type: auto (default), logodds, or probability
-    --rc                Output the reverse complement of the motif (DNA/RNA only)
+    --rc         Output the reverse complement of the motif (DNA/RNA only)
     --trim-edges <float> Trim edges with information content below threshold
-    --min-ic <float>    Filter out motifs with total information content below threshold
+    --min-ic <float> Filter out motifs with total information content below threshold
     -h           Show this help
 
 Examples:
@@ -193,227 +176,9 @@ Examples:
     homer2meme -i motifs.homer -e "CTCF/Jaspar"
     homer2meme -i motifs.json -f json > motifs.meme
     homer2meme -i motifs.homer --input-format logodds
-    homer2meme -i motifs.homer --rc
     cat motifs.homer | homer2meme -i -
 "#
     );
-}
-
-fn is_logodds(row: &[f64], matrix_type: MatrixType) -> bool {
-    match matrix_type {
-        MatrixType::Logodds => true,
-        MatrixType::Probability => false,
-        MatrixType::Auto => {
-            let s: f64 = row.iter().sum();
-            !(0.98..=1.02).contains(&s)
-        }
-    }
-}
-
-fn logodds_to_prob(row: &[f64], pseudocount: f64) -> Vec<f64> {
-    let background = 0.25_f64;
-    let raw: Vec<f64> = row.iter().map(|&v| 2.0_f64.powf(v) * background).collect();
-    let total: f64 = raw.iter().sum::<f64>() + pseudocount * raw.len() as f64;
-    raw.iter().map(|&v| (v + pseudocount) / total).collect()
-}
-
-fn print_meme_header() {
-    println!("MEME version 4");
-    println!();
-    println!("ALPHABET= ACGT");
-    println!();
-    println!("strands: + -");
-    println!();
-    println!("Background letter frequencies");
-    println!("A 0.25 C 0.25 G 0.25 T 0.25");
-    println!();
-}
-
-fn apply_motif_operations(mut m: Motif, args: &Args) -> Option<Motif> {
-    if args.rc {
-        if let Err(e) = m.reverse_complement() {
-            eprintln!("Warning: skipping motif '{}': {}", m.id, e);
-            return None;
-        }
-    }
-    if args.trim_edges > 0.0 {
-        m.trim_edges(args.trim_edges);
-    }
-    if m.matrix.is_empty() {
-        return None;
-    }
-    if args.min_ic > 0.0 && m.total_ic() < args.min_ic {
-        return None;
-    }
-    Some(m)
-}
-
-fn parse_and_convert_homer<R: BufRead>(reader: R, args: &Args) -> io::Result<()> {
-    let mut header_printed = false;
-    let mut in_motif = false;
-    let mut motif_id = String::new();
-    let mut description = String::new();
-    let mut matrix: Vec<Vec<f64>> = Vec::new();
-
-    for line_result in reader.lines() {
-        let line = line_result?;
-        let trimmed = line.trim();
-
-        if trimmed.is_empty() {
-            continue;
-        }
-
-        if let Some(rest) = trimmed.strip_prefix('>') {
-            if in_motif && !matrix.is_empty() {
-                let m = Motif::new(
-                    motif_id.clone(),
-                    description.clone(),
-                    std::mem::take(&mut matrix),
-                    "ACGT".to_string(),
-                );
-                if let Some(m) = apply_motif_operations(m, args) {
-                    if !header_printed {
-                        print_meme_header();
-                        header_printed = true;
-                    }
-                    m.print_meme_motif();
-                }
-            }
-            matrix.clear();
-
-            let parts: Vec<&str> = rest.splitn(6, '\t').collect();
-            let mid = parts.first().copied().unwrap_or("motif").to_string();
-            let raw_desc = parts.get(1).copied().unwrap_or("").to_string();
-            let final_desc = if raw_desc.is_empty() {
-                mid.clone()
-            } else {
-                raw_desc
-            };
-
-            if !args.extract.is_empty() && mid != args.extract && final_desc != args.extract {
-                in_motif = false;
-                continue;
-            }
-            motif_id = mid;
-            description = final_desc;
-            in_motif = true;
-            continue;
-        }
-
-        if !in_motif {
-            continue;
-        }
-
-        let row_result: Result<Vec<f64>, _> = trimmed
-            .split_whitespace()
-            .map(|s| s.parse::<f64>())
-            .collect();
-        if let Ok(mut row) = row_result {
-            if !row.is_empty() {
-                if row.len() != 4 {
-                    eprintln!(
-                        "Warning: skipping malformed matrix row with {} cols (expected 4): {}",
-                        row.len(),
-                        trimmed
-                    );
-                    continue;
-                }
-                if is_logodds(&row, args.matrix_type) {
-                    row = logodds_to_prob(&row, args.pseudocount);
-                }
-                matrix.push(row);
-            }
-        }
-    }
-
-    if in_motif && !matrix.is_empty() {
-        let m = Motif::new(motif_id, description, matrix, "ACGT".to_string());
-        if let Some(m) = apply_motif_operations(m, args) {
-            if !header_printed {
-                print_meme_header();
-            }
-            m.print_meme_motif();
-        }
-    }
-
-    Ok(())
-}
-
-fn parse_and_convert_json<R: BufRead>(reader: R, args: &Args) -> io::Result<()> {
-    let mut content = String::new();
-    for line_result in reader.lines() {
-        content.push_str(&line_result?);
-    }
-
-    let data: serde_json::Value = match serde_json::from_str(&content) {
-        Ok(v) => v,
-        Err(e) => {
-            eprintln!("Error: invalid JSON: {}", e);
-            std::process::exit(1);
-        }
-    };
-
-    let mut header_printed = false;
-
-    if let Some(motifs) = data.get("motifs").and_then(|m| m.as_array()) {
-        for motif in motifs {
-            let mid = motif.get("id").and_then(|v| v.as_str()).unwrap_or("motif");
-            let desc = motif
-                .get("description")
-                .and_then(|v| v.as_str())
-                .unwrap_or(mid);
-            let alphabet = motif
-                .get("alphabet")
-                .and_then(|v| v.as_str())
-                .unwrap_or("ACGT");
-            let matrix = motif.get("matrix").and_then(|v| v.as_array());
-
-            if matrix.is_none() {
-                continue;
-            }
-            let matrix = matrix.unwrap();
-
-            if !args.extract.is_empty() && mid != args.extract && desc != args.extract {
-                continue;
-            }
-
-            let mut processed: Vec<Vec<f64>> = Vec::new();
-            for row in matrix {
-                if let Some(arr) = row.as_array() {
-                    if arr.len() != 4 {
-                        eprintln!("Warning: skipping malformed matrix row (expected 4 cols)");
-                        continue;
-                    }
-                    let vals: Vec<f64> = arr.iter().filter_map(|v| v.as_f64()).collect();
-                    if vals.len() == 4 {
-                        if is_logodds(&vals, MatrixType::Auto) {
-                            processed.push(logodds_to_prob(&vals, args.pseudocount));
-                        } else {
-                            processed.push(vals);
-                        }
-                    }
-                }
-            }
-
-            if !processed.is_empty() {
-                let m = Motif::new(
-                    mid.to_string(),
-                    desc.to_string(),
-                    processed,
-                    alphabet.to_string(),
-                );
-                if let Some(m) = apply_motif_operations(m, args) {
-                    if !header_printed {
-                        print_meme_header();
-                        header_printed = true;
-                    }
-                    m.print_meme_motif();
-                }
-            }
-        }
-    }
-
-    Ok(())
 }
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
@@ -437,10 +202,38 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         Box::new(BufReader::new(file))
     };
 
-    match args.input_format {
-        InputFormat::Json => parse_and_convert_json(reader, &args)?,
-        InputFormat::Homer => parse_and_convert_homer(reader, &args)?,
+    let raw_motifs = match args.input_format {
+        InputFormat::Json => read_json(reader, args.pseudocount)?,
+        InputFormat::Homer => read_homer(reader, args.pseudocount, args.matrix_type)?,
+    };
+
+    let mut processed_motifs = Vec::new();
+    for mut m in raw_motifs {
+        if !args.extract.is_empty() && m.id != args.extract && m.description != args.extract {
+            continue;
+        }
+
+        if args.rc {
+            if let Err(e) = m.reverse_complement() {
+                eprintln!("Warning: skipping motif '{}': {}", m.id, e);
+                continue;
+            }
+        }
+        if args.trim_edges > 0.0 {
+            m.trim_edges(args.trim_edges);
+        }
+        if m.matrix.is_empty() {
+            continue;
+        }
+        if args.min_ic > 0.0 && m.total_ic() < args.min_ic {
+            continue;
+        }
+        processed_motifs.push(m);
     }
+
+    let mut stdout = BufWriter::new(io::stdout().lock());
+    write_meme(&mut stdout, &processed_motifs)?;
+
     Ok(())
 }
 

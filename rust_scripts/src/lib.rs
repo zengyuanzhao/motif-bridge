@@ -1,3 +1,8 @@
+pub mod error;
+pub mod io;
+
+pub use error::MotifError;
+pub use io::MatrixType;
 use std::f64;
 
 #[derive(Clone, Debug)]
