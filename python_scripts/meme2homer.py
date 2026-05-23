@@ -20,11 +20,13 @@ try:
     from motif_bridge.io import read_meme, write_homer, write_json
 except ImportError:
     import os
+
     # Add project root to sys.path
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     if root not in sys.path:
         sys.path.insert(0, root)
     from motif_bridge.io import read_meme, write_homer, write_json
+
 
 def bg_prob(value: str) -> float:
     try:
@@ -34,6 +36,7 @@ def bg_prob(value: str) -> float:
     if not (0 < v <= 1):
         raise argparse.ArgumentTypeError("-b must be in (0, 1].")
     return v
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -113,6 +116,7 @@ def parse_args() -> argparse.Namespace:
     )
     return parser.parse_args()
 
+
 def open_input(path: str):
     """Open plain, gzip, or stdin input."""
     if path == "-":
@@ -122,15 +126,16 @@ def open_input(path: str):
     else:
         return open(path, "r", encoding="utf-8")
 
+
 def process_motifs(motifs, args):
     """Filter and apply operations to motifs."""
     for m in motifs:
         original_name = m.description
         if args.e and m.id != args.e and original_name != args.e:
             continue
-            
+
         m.description = f"{args.k or original_name}/{args.j}"
-        
+
         if args.rc:
             m.reverse_complement()
         if args.trim_edges > 0:
@@ -139,8 +144,9 @@ def process_motifs(motifs, args):
             continue
         if args.min_ic > 0 and m.total_ic() < args.min_ic:
             continue
-            
+
         yield m
+
 
 def main() -> None:
     args = parse_args()
@@ -149,7 +155,7 @@ def main() -> None:
         fh = open_input(args.i)
         raw_motifs = read_meme(fh, alphabet=args.alphabet or "ACGT")
         processed_motifs = process_motifs(raw_motifs, args)
-        
+
         if args.format == "json":
             write_json(processed_motifs, sys.stdout)
         else:
@@ -164,6 +170,7 @@ def main() -> None:
                 fh.close()
             except Exception:
                 pass
+
 
 if __name__ == "__main__":
     main()

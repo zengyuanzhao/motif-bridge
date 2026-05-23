@@ -20,11 +20,13 @@ try:
     from motif_bridge.io import read_homer, read_json, write_meme
 except ImportError:
     import os
+
     # Add project root to sys.path
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     if root not in sys.path:
         sys.path.insert(0, root)
     from motif_bridge.io import read_homer, read_json, write_meme
+
 
 def positive_float(value: str) -> float:
     try:
@@ -34,6 +36,7 @@ def positive_float(value: str) -> float:
     if v <= 0:
         raise argparse.ArgumentTypeError("-a must be > 0.")
     return v
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -102,6 +105,7 @@ def parse_args() -> argparse.Namespace:
     )
     return parser.parse_args()
 
+
 def open_input(path: str):
     """Open plain, gzip, or stdin input."""
     if path == "-":
@@ -111,12 +115,13 @@ def open_input(path: str):
     else:
         return open(path, "r", encoding="utf-8")
 
+
 def process_motifs(motifs, args):
     """Filter and apply operations to motifs."""
     for m in motifs:
         if args.e and m.id != args.e and m.description != args.e:
             continue
-            
+
         if args.rc:
             m.reverse_complement()
         if args.trim_edges > 0:
@@ -125,23 +130,24 @@ def process_motifs(motifs, args):
             continue
         if args.min_ic > 0 and m.total_ic() < args.min_ic:
             continue
-            
+
         yield m
+
 
 def main() -> None:
     args = parse_args()
     fh = None
     try:
         fh = open_input(args.i)
-        
+
         if args.format == "json":
             raw_motifs = read_json(fh, pseudocount=args.a)
         else:
             raw_motifs = read_homer(fh, pseudocount=args.a, input_format=args.input_format)
-            
+
         processed_motifs = process_motifs(raw_motifs, args)
         write_meme(processed_motifs, sys.stdout)
-        
+
     except FileNotFoundError:
         sys.exit(f"Error: Cannot open file: {args.i}")
     except BrokenPipeError:
@@ -152,6 +158,7 @@ def main() -> None:
                 fh.close()
             except Exception:
                 pass
+
 
 if __name__ == "__main__":
     main()
