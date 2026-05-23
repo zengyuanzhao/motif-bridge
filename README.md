@@ -242,27 +242,23 @@ meme2homer -i motifs.meme --min-ic 5.0 > motifs_filtered.homer
 ### Python SDK
 
 ```python
-from motif_bridge.core import Motif
+import sys
+from motif_bridge import read_meme, write_homer, Motif
 
-# Create a motif from a probability matrix
-motif = Motif(
-    id="MA0021.1",
-    description="CTCF/JASPAR2026",
-    matrix=[[0.35, 0.15, 0.16, 0.34], [0.10, 0.40, 0.40, 0.10]],
-    alphabet="ACGT"
-)
+# Read motifs from a MEME file (yields a generator to save memory)
+with open("motifs.meme", "r") as f:
+    motifs = list(read_meme(f, alphabet="ACGT"))
 
-# Calculate Information Content
-print(motif.total_ic())
-
-# Reverse complement
-motif.reverse_complement()
-
-# Trim low-IC edges
-motif.trim_edges(threshold=0.5)
-
-# Serialize to dict
-data = motif.to_dict()
+for motif in motifs:
+    # Filter by Information Content
+    if motif.total_ic() > 5.0:
+        # Trim low-IC edges
+        motif.trim_edges(threshold=0.5)
+        # Reverse complement
+        motif.reverse_complement()
+        
+# Write processed motifs to stdout in HOMER format
+write_homer(motifs, sys.stdout, background=0.25)
 ```
 
 ### Rust Crate
@@ -275,22 +271,31 @@ motif-bridge = { git = "https://github.com/zengyuanzhao/motif-bridge" }
 ```
 
 ```rust
-use motif_bridge::Motif;
+use motif_bridge::io::{read_meme, write_homer};
+use std::fs::File;
+use std::io::{BufReader, BufWriter};
 
-let mut motif = Motif::new(
-    "MA0021.1".to_string(),
-    "CTCF/JASPAR2026".to_string(),
-    vec![
-        vec![0.35, 0.15, 0.16, 0.34],
-        vec![0.10, 0.40, 0.40, 0.10],
-    ],
-    "ACGT".to_string(),
-);
-
-let ic = motif.total_ic();
-motif.reverse_complement().unwrap();
-motif.trim_edges(0.5);
-motif.print_homer(0.25, 4.0);
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let file = File::open("motifs.meme")?;
+    let reader = BufReader::new(file);
+    
+    // Read motifs from a MEME file
+    let mut motifs = read_meme(reader, "ACGT")?;
+    
+    for motif in motifs.iter_mut() {
+        if motif.total_ic() > 5.0 {
+            motif.trim_edges(0.5);
+            motif.reverse_complement()?;
+        }
+    }
+    
+    // Write to a new HOMER file
+    let out_file = File::create("processed.homer")?;
+    let mut writer = BufWriter::new(out_file);
+    write_homer(&mut writer, &motifs, 0.25, 4.0)?;
+    
+    Ok(())
+}
 ```
 
 ---
