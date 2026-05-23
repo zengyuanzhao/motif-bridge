@@ -9,6 +9,9 @@ my $extract     = '';
 my $pseudocount = 0.01;
 my $input_fmt   = 'homer';
 my $matrix_type = 'auto';
+my $do_rc       = 0;
+my $trim_edges  = 0;
+my $min_ic      = 0;
 
 GetOptions(
     'i=s' => \$input,
@@ -17,6 +20,9 @@ GetOptions(
     'f=s' => \$input_fmt,
     'format=s' => \$input_fmt,
     'input-format=s' => \$matrix_type,
+    'rc'    => \$do_rc,
+    'trim-edges=f' => \$trim_edges,
+    'min-ic=f' => \$min_ic,
     'h'   => sub { usage() },
 ) or usage();
 
@@ -69,6 +75,85 @@ sub logodds_to_prob {
     return map { ($_ + $pc) / $total } @raw;
 }
 
+sub calculate_ic {
+    my ($matrix_ref) = @_;
+    my $max_ic = 2.0;
+    my @ic_list;
+    foreach my $row (@$matrix_ref) {
+        my $h = 0;
+        foreach my $p (@$row) {
+            $h -= $p * (log($p) / log(2)) if $p > 0;
+        }
+        my $ic = $max_ic - $h;
+        $ic = 0 if $ic < 0;
+        push @ic_list, $ic;
+    }
+    return @ic_list;
+}
+
+sub total_ic {
+    my ($matrix_ref) = @_;
+    my @ic = calculate_ic($matrix_ref);
+    my $sum = 0;
+    $sum += $_ for @ic;
+    return $sum;
+}
+
+sub reverse_complement {
+    my ($matrix_ref, $id_ref) = @_;
+    my @rev = reverse @$matrix_ref;
+    my @rc;
+    for my $row (@rev) {
+        push @rc, [$row->[3], $row->[2], $row->[1], $row->[0]];
+    }
+    $$id_ref .= '_RC';
+    return @rc;
+}
+
+sub trim_edges {
+    my ($matrix_ref, $threshold) = @_;
+    my @ic = calculate_ic($matrix_ref);
+    my $start = 0;
+    while ($start < scalar(@ic) && $ic[$start] < $threshold) {
+        $start++;
+    }
+    my $end = scalar(@ic);
+    while ($end > $start && $ic[$end - 1] < $threshold) {
+        $end--;
+    }
+    if ($start < $end) {
+        return @$matrix_ref[$start .. $end - 1];
+    } else {
+        return ();
+    }
+}
+
+sub process_motif {
+    my ($id, $desc, $matrix_ref, $header_ref) = @_;
+
+    my @mat = @$matrix_ref;
+
+    if ($do_rc) {
+        @mat = reverse_complement(\@mat, \$id);
+    }
+
+    if ($trim_edges > 0) {
+        @mat = trim_edges(\@mat, $trim_edges);
+        if (!@mat) {
+            warn "Warning: motif '$id' trimmed to empty matrix (IC threshold=$trim_edges)\n";
+            return;
+        }
+    }
+
+    if ($min_ic > 0 && total_ic(\@mat) < $min_ic) {
+        return;
+    }
+
+    print_meme_header() unless $$header_ref;
+    $$header_ref = 1;
+    print_meme_motif($id, $desc, \@mat);
+}
+
 sub print_meme_header {
     print "MEME version 4\n";
     print "\n";
@@ -109,9 +194,7 @@ sub parse_and_convert_homer {
             my $rest = $1;
 
             if ($in_motif && @matrix) {
-                print_meme_header() unless $header_printed;
-                $header_printed = 1;
-                print_meme_motif($motif_id, $description, \@matrix);
+                process_motif($motif_id, $description, \@matrix, \$header_printed);
             }
             @matrix = ();
 
@@ -156,8 +239,7 @@ sub parse_and_convert_homer {
     }
 
     if ($in_motif && @matrix) {
-        print_meme_header() unless $header_printed;
-        print_meme_motif($motif_id, $description, \@matrix);
+        process_motif($motif_id, $description, \@matrix, \$header_printed);
     }
 }
 
@@ -174,6 +256,7 @@ sub parse_and_convert_json {
         die "Error: Invalid JSON: $@\n";
     }
 
+    my $header_printed = 0;
     my @motifs;
     if (ref $data eq 'HASH' && ref $data->{motifs} eq 'ARRAY') {
         for my $m (@{$data->{motifs}}) {
@@ -206,9 +289,8 @@ sub parse_and_convert_json {
     }
 
     if (@motifs) {
-        print_meme_header();
         for my $m (@motifs) {
-            print_meme_motif($m->{id}, $m->{desc}, $m->{matrix});
+            process_motif($m->{id}, $m->{desc}, $m->{matrix}, \$header_printed);
         }
     }
 }
@@ -225,6 +307,9 @@ Options:
     -a <float>  Pseudocount for log-odds to probability conversion (default: 0.01)
     -f, --format <fmt>  Input format: homer (default) or json
     --input-format <fmt>  Matrix type: auto (default), logodds, or probability
+    --rc                Output the reverse complement of the motif (DNA/RNA only)
+    --trim-edges <float> Trim edges with information content below threshold
+    --min-ic <float>    Filter out motifs with total information content below threshold
     -h          Show this help
 
 Examples:
@@ -233,6 +318,7 @@ Examples:
     $0 -i results/motifs.homer -e "CTCF/Jaspar"
     $0 -i motifs.json -f json > motifs.meme
     $0 -i motifs.homer --input-format logodds
+    $0 -i motifs.homer --rc
     cat motifs.homer | $0 -i -
 
 EOF

@@ -31,6 +31,9 @@ struct Args {
     t_offset: f64,
     output_format: OutputFormat,
     alphabet: String,
+    rc: bool,
+    trim_edges: f64,
+    min_ic: f64,
 }
 
 #[derive(Clone, Copy)]
@@ -48,6 +51,9 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
     let mut t_offset = 4.0_f64;
     let mut output_format = OutputFormat::Homer;
     let mut alphabet = String::from("ACGT");
+    let mut rc = false;
+    let mut trim_edges = 0.0_f64;
+    let mut min_ic = 0.0_f64;
     let mut i = 1usize;
     while i < argv.len() {
         match argv[i].as_str() {
@@ -133,6 +139,33 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
                 }
                 alphabet = val.to_string();
             }
+            "--rc" => {
+                rc = true;
+            }
+            "--trim-edges" => {
+                i += 1;
+                if i >= argv.len() {
+                    return Err("--trim-edges requires an argument.".into());
+                }
+                trim_edges = argv[i]
+                    .parse::<f64>()
+                    .map_err(|_| format!("invalid --trim-edges value: {}", argv[i]))?;
+                if trim_edges < 0.0 {
+                    return Err("--trim-edges must be >= 0".into());
+                }
+            }
+            "--min-ic" => {
+                i += 1;
+                if i >= argv.len() {
+                    return Err("--min-ic requires an argument.".into());
+                }
+                min_ic = argv[i]
+                    .parse::<f64>()
+                    .map_err(|_| format!("invalid --min-ic value: {}", argv[i]))?;
+                if min_ic < 0.0 {
+                    return Err("--min-ic must be >= 0".into());
+                }
+            }
             "-h" | "--help" => {
                 usage();
                 std::process::exit(0);
@@ -157,6 +190,9 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
         t_offset,
         output_format,
         alphabet,
+        rc,
+        trim_edges,
+        min_ic,
     })
 }
 
@@ -174,6 +210,10 @@ Options:
     -b <float>   Background probability in (0, 1] (default: 0.25)
     -t <float>   Threshold offset in log2 bits (default: 4.0)
     -f, --format <fmt>  Output format: homer (default) or json
+    --alphabet <str>    Alphabet: ACGT (DNA, default), ACGU (RNA), or PROTEIN
+    --rc                Output the reverse complement of the motif (DNA/RNA only)
+    --trim-edges <float> Trim edges with information content below threshold
+    --min-ic <float>    Filter out motifs with total information content below threshold
     -h           Show this help
 
 Examples:
@@ -181,46 +221,31 @@ Examples:
     meme2homer -i motifs.meme.gz -j JASPAR2026 > motifs.homer
     meme2homer -i motifs.meme -b 0.25 -t 6
     meme2homer -i motifs.meme -f json > motifs.json
+    meme2homer -i motifs.meme --rc
+    meme2homer -i motifs.meme --trim-edges 0.5
 "#
     );
 }
 
-// ---------------------------------------------------------------------------
-// Data structures
-// ---------------------------------------------------------------------------
+use motif_bridge::Motif;
 
-struct Motif {
-    id: String,
-    description: String,
-    matrix: Vec<Vec<f64>>,
-    alphabet: String,
-}
-
-impl Motif {
-    fn calculate_score(&self, bg: f64, t_offset: f64) -> f64 {
-        let raw: f64 = self
-            .matrix
-            .iter()
-            .map(|row| {
-                let max_p = row.iter().cloned().fold(0.0_f64, f64::max);
-                if max_p > 0.0 {
-                    (max_p / bg).log2()
-                } else {
-                    0.0
-                }
-            })
-            .sum();
-        (raw - t_offset).max(0.0)
-    }
-
-    fn print_homer(&self, bg: f64, t_offset: f64) {
-        let score = self.calculate_score(bg, t_offset);
-        println!(">{}\t{}\t{:.6}\t0\t0\t0", self.id, self.description, score);
-        for row in &self.matrix {
-            let line: Vec<String> = row.iter().map(|v| format!("{:.6}", v)).collect();
-            println!("{}", line.join("\t"));
+fn apply_motif_operations(mut m: Motif, args: &Args) -> Option<Motif> {
+    if args.rc {
+        if let Err(e) = m.reverse_complement() {
+            eprintln!("Warning: skipping motif '{}': {}", m.id, e);
+            return None;
         }
     }
+    if args.trim_edges > 0.0 {
+        m.trim_edges(args.trim_edges);
+    }
+    if m.matrix.is_empty() {
+        return None;
+    }
+    if args.min_ic > 0.0 && m.total_ic() < args.min_ic {
+        return None;
+    }
+    Some(m)
 }
 
 // ---------------------------------------------------------------------------
@@ -294,16 +319,18 @@ fn parse_and_convert<R: BufRead>(reader: R, args: &Args) -> io::Result<()> {
 
         if let Some(rest) = trimmed.strip_prefix("MOTIF") {
             if in_motif && !matrix.is_empty() {
-                let m = Motif {
-                    id: motif_id.clone(),
-                    description: description.clone(),
-                    matrix: std::mem::take(&mut matrix),
-                    alphabet: args.alphabet.clone(),
-                };
-                if matches!(args.output_format, OutputFormat::Json) {
-                    motifs.push(m);
-                } else {
-                    m.print_homer(args.bg, args.t_offset);
+                let m = Motif::new(
+                    motif_id.clone(),
+                    description.clone(),
+                    std::mem::take(&mut matrix),
+                    args.alphabet.clone(),
+                );
+                if let Some(m) = apply_motif_operations(m, args) {
+                    if matches!(args.output_format, OutputFormat::Json) {
+                        motifs.push(m);
+                    } else {
+                        m.print_homer(args.bg, args.t_offset);
+                    }
                 }
             }
             in_matrix = false;
@@ -345,16 +372,18 @@ fn parse_and_convert<R: BufRead>(reader: R, args: &Args) -> io::Result<()> {
 
         if trimmed.starts_with("//") {
             if !matrix.is_empty() {
-                let m = Motif {
-                    id: motif_id.clone(),
-                    description: description.clone(),
-                    matrix: std::mem::take(&mut matrix),
-                    alphabet: args.alphabet.clone(),
-                };
-                if matches!(args.output_format, OutputFormat::Json) {
-                    motifs.push(m);
-                } else {
-                    m.print_homer(args.bg, args.t_offset);
+                let m = Motif::new(
+                    motif_id.clone(),
+                    description.clone(),
+                    std::mem::take(&mut matrix),
+                    args.alphabet.clone(),
+                );
+                if let Some(m) = apply_motif_operations(m, args) {
+                    if matches!(args.output_format, OutputFormat::Json) {
+                        motifs.push(m);
+                    } else {
+                        m.print_homer(args.bg, args.t_offset);
+                    }
                 }
             }
             in_motif = false;
@@ -401,16 +430,13 @@ fn parse_and_convert<R: BufRead>(reader: R, args: &Args) -> io::Result<()> {
     }
 
     if in_motif && !matrix.is_empty() {
-        let m = Motif {
-            id: motif_id,
-            description,
-            matrix,
-            alphabet: args.alphabet.clone(),
-        };
-        if matches!(args.output_format, OutputFormat::Json) {
-            motifs.push(m);
-        } else {
-            m.print_homer(args.bg, args.t_offset);
+        let m = Motif::new(motif_id, description, matrix, args.alphabet.clone());
+        if let Some(m) = apply_motif_operations(m, args) {
+            if matches!(args.output_format, OutputFormat::Json) {
+                motifs.push(m);
+            } else {
+                m.print_homer(args.bg, args.t_offset);
+            }
         }
     }
 

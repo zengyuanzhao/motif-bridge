@@ -15,9 +15,19 @@ Requires: Python 3.8+, no external dependencies
 import argparse
 import gzip
 import json
-import math
 import sys
 from typing import List
+
+try:
+    from motif_bridge.core import Motif
+except ImportError:
+    import os
+
+    # Add project root to sys.path
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if root not in sys.path:
+        sys.path.insert(0, root)
+    from motif_bridge.core import Motif
 
 ALPHABETS = {
     "ACGT": "ACGT",
@@ -93,6 +103,25 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Alphabet: ACGT (DNA, default), ACGU (RNA), or PROTEIN",
     )
+    parser.add_argument(
+        "--rc",
+        action="store_true",
+        help="Output the reverse complement of the motif (DNA/RNA only).",
+    )
+    parser.add_argument(
+        "--trim-edges",
+        metavar="<float>",
+        type=float,
+        default=0.0,
+        help="Trim edges with information content below threshold.",
+    )
+    parser.add_argument(
+        "--min-ic",
+        metavar="<float>",
+        type=float,
+        default=0.0,
+        help="Filter out motifs with total information content below threshold.",
+    )
     return parser.parse_args()
 
 
@@ -106,17 +135,6 @@ def open_input(path: str):
         return open(path, "r", encoding="utf-8")
 
 
-def calculate_score(matrix: List[List[float]], background: float, threshold_offset: float) -> float:
-    """Calculate HOMER log-odds threshold from a probability matrix."""
-    score = 0.0
-    for row in matrix:
-        max_p = max(row) if row else 0.0
-        if max_p > 0:
-            score += math.log2(max_p / background)
-    score -= threshold_offset
-    return max(score, 0.0)
-
-
 def print_motif_homer(
     motif_id: str,
     description: str,
@@ -125,10 +143,36 @@ def print_motif_homer(
     threshold_offset: float,
 ) -> None:
     """Print a single motif in HOMER format (6 tab-separated header fields)."""
-    score = calculate_score(matrix, background, threshold_offset)
+    m = Motif(motif_id, description, matrix)
+    score = m.calculate_score(background, threshold_offset)
     print(f">{motif_id}\t{description}\t{score:.6f}\t0\t0\t0")
     for row in matrix:
         print("\t".join(f"{v:.6f}" for v in row))
+
+
+def process_and_output_motif(
+    m: Motif,
+    background: float,
+    threshold_offset: float,
+    output_format: str,
+    do_rc: bool,
+    trim_edges: float,
+    min_ic: float,
+    motifs_list: List[dict],
+) -> None:
+    if do_rc:
+        m.reverse_complement()
+    if trim_edges > 0:
+        m.trim_edges(trim_edges)
+    if not m.matrix:
+        return
+    if min_ic > 0 and m.total_ic() < min_ic:
+        return
+
+    if output_format == "json":
+        motifs_list.append(m.to_dict())
+    else:
+        print_motif_homer(m.id, m.description, m.matrix, background, threshold_offset)
 
 
 def parse_and_convert(
@@ -140,6 +184,9 @@ def parse_and_convert(
     threshold_offset: float,
     output_format: str = "homer",
     alphabet: str = "ACGT",
+    do_rc: bool = False,
+    trim_edges: float = 0.0,
+    min_ic: float = 0.0,
 ) -> List[dict]:
     in_motif = False
     in_matrix = False
@@ -155,17 +202,17 @@ def parse_and_convert(
 
         if stripped.startswith("MOTIF"):
             if in_motif and matrix:
-                if output_format == "json":
-                    motifs.append(
-                        {
-                            "id": motif_id,
-                            "description": description,
-                            "matrix": matrix,
-                            "alphabet": alphabet,
-                        }
-                    )
-                else:
-                    print_motif_homer(motif_id, description, matrix, background, threshold_offset)
+                m = Motif(motif_id, description, matrix, alphabet)
+                process_and_output_motif(
+                    m,
+                    background,
+                    threshold_offset,
+                    output_format,
+                    do_rc,
+                    trim_edges,
+                    min_ic,
+                    motifs,
+                )
 
             parts = stripped.split()
             mid = parts[1] if len(parts) > 1 else ""
@@ -197,17 +244,17 @@ def parse_and_convert(
             continue
         if stripped.startswith("//"):
             if matrix:
-                if output_format == "json":
-                    motifs.append(
-                        {
-                            "id": motif_id,
-                            "description": description,
-                            "matrix": matrix,
-                            "alphabet": alphabet,
-                        }
-                    )
-                else:
-                    print_motif_homer(motif_id, description, matrix, background, threshold_offset)
+                m = Motif(motif_id, description, matrix, alphabet)
+                process_and_output_motif(
+                    m,
+                    background,
+                    threshold_offset,
+                    output_format,
+                    do_rc,
+                    trim_edges,
+                    min_ic,
+                    motifs,
+                )
             matrix = []
             in_motif = False
             in_matrix = False
@@ -238,17 +285,10 @@ def parse_and_convert(
                 pass
 
     if in_motif and matrix:
-        if output_format == "json":
-            motifs.append(
-                {
-                    "id": motif_id,
-                    "description": description,
-                    "matrix": matrix,
-                    "alphabet": alphabet,
-                }
-            )
-        else:
-            print_motif_homer(motif_id, description, matrix, background, threshold_offset)
+        m = Motif(motif_id, description, matrix, alphabet)
+        process_and_output_motif(
+            m, background, threshold_offset, output_format, do_rc, trim_edges, min_ic, motifs
+        )
 
     return motifs
 
@@ -267,6 +307,9 @@ def main() -> None:
             threshold_offset=args.t,
             output_format=args.format,
             alphabet=args.alphabet or "ACGT",
+            do_rc=args.rc,
+            trim_edges=args.trim_edges,
+            min_ic=args.min_ic,
         )
         if args.format == "json":
             json.dump({"version": "1.0", "source": "meme", "motifs": motifs}, sys.stdout, indent=2)

@@ -15,6 +15,7 @@
 //!   cat motifs.homer | homer2meme -i -
 
 use flate2::read::MultiGzDecoder;
+use motif_bridge::Motif;
 use std::env;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader};
@@ -38,6 +39,9 @@ struct Args {
     pseudocount: f64,
     input_format: InputFormat,
     matrix_type: MatrixType,
+    rc: bool,
+    trim_edges: f64,
+    min_ic: f64,
 }
 
 fn parse_args(argv: &[String]) -> Result<Args, String> {
@@ -46,6 +50,9 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
     let mut pseudocount = 0.01_f64;
     let mut input_format = InputFormat::Homer;
     let mut matrix_type = MatrixType::Auto;
+    let mut rc = false;
+    let mut trim_edges = 0.0_f64;
+    let mut min_ic = 0.0_f64;
     let mut i = 1usize;
     while i < argv.len() {
         match argv[i].as_str() {
@@ -109,6 +116,33 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
                     other => return Err(format!("unknown input-format: {}", other)),
                 };
             }
+            "--rc" => {
+                rc = true;
+            }
+            "--trim-edges" => {
+                i += 1;
+                if i >= argv.len() {
+                    return Err("--trim-edges requires an argument.".into());
+                }
+                trim_edges = argv[i]
+                    .parse::<f64>()
+                    .map_err(|_| format!("invalid --trim-edges value: {}", argv[i]))?;
+                if trim_edges < 0.0 {
+                    return Err("--trim-edges must be >= 0".into());
+                }
+            }
+            "--min-ic" => {
+                i += 1;
+                if i >= argv.len() {
+                    return Err("--min-ic requires an argument.".into());
+                }
+                min_ic = argv[i]
+                    .parse::<f64>()
+                    .map_err(|_| format!("invalid --min-ic value: {}", argv[i]))?;
+                if min_ic < 0.0 {
+                    return Err("--min-ic must be >= 0".into());
+                }
+            }
             "-h" | "--help" => {
                 usage();
                 std::process::exit(0);
@@ -130,6 +164,9 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
         pseudocount,
         input_format,
         matrix_type,
+        rc,
+        trim_edges,
+        min_ic,
     })
 }
 
@@ -145,6 +182,9 @@ Options:
     -a <float>   Pseudocount for log-odds -> probability conversion (default: 0.01)
     -f, --format <fmt>  Input format: homer (default) or json
     --input-format <fmt>  Matrix type: auto (default), logodds, or probability
+    --rc                Output the reverse complement of the motif (DNA/RNA only)
+    --trim-edges <float> Trim edges with information content below threshold
+    --min-ic <float>    Filter out motifs with total information content below threshold
     -h           Show this help
 
 Examples:
@@ -153,6 +193,7 @@ Examples:
     homer2meme -i motifs.homer -e "CTCF/Jaspar"
     homer2meme -i motifs.json -f json > motifs.meme
     homer2meme -i motifs.homer --input-format logodds
+    homer2meme -i motifs.homer --rc
     cat motifs.homer | homer2meme -i -
 "#
     );
@@ -188,19 +229,23 @@ fn print_meme_header() {
     println!();
 }
 
-fn print_meme_motif(id: &str, desc: &str, matrix: &[Vec<f64>]) {
-    let width = matrix.len();
-    println!("MOTIF {} {}", id, desc);
-    println!();
-    println!(
-        "letter-probability matrix: alength= 4 w= {} nsites= 20 E= 0",
-        width
-    );
-    for row in matrix {
-        let line: Vec<String> = row.iter().map(|v| format!("{:.6}", v)).collect();
-        println!("  {}", line.join("  "));
+fn apply_motif_operations(mut m: Motif, args: &Args) -> Option<Motif> {
+    if args.rc {
+        if let Err(e) = m.reverse_complement() {
+            eprintln!("Warning: skipping motif '{}': {}", m.id, e);
+            return None;
+        }
     }
-    println!();
+    if args.trim_edges > 0.0 {
+        m.trim_edges(args.trim_edges);
+    }
+    if m.matrix.is_empty() {
+        return None;
+    }
+    if args.min_ic > 0.0 && m.total_ic() < args.min_ic {
+        return None;
+    }
+    Some(m)
 }
 
 fn parse_and_convert_homer<R: BufRead>(reader: R, args: &Args) -> io::Result<()> {
@@ -220,11 +265,19 @@ fn parse_and_convert_homer<R: BufRead>(reader: R, args: &Args) -> io::Result<()>
 
         if let Some(rest) = trimmed.strip_prefix('>') {
             if in_motif && !matrix.is_empty() {
-                if !header_printed {
-                    print_meme_header();
-                    header_printed = true;
+                let m = Motif::new(
+                    motif_id.clone(),
+                    description.clone(),
+                    std::mem::take(&mut matrix),
+                    "ACGT".to_string(),
+                );
+                if let Some(m) = apply_motif_operations(m, args) {
+                    if !header_printed {
+                        print_meme_header();
+                        header_printed = true;
+                    }
+                    m.print_meme_motif();
                 }
-                print_meme_motif(&motif_id, &description, &matrix);
             }
             matrix.clear();
 
@@ -274,10 +327,13 @@ fn parse_and_convert_homer<R: BufRead>(reader: R, args: &Args) -> io::Result<()>
     }
 
     if in_motif && !matrix.is_empty() {
-        if !header_printed {
-            print_meme_header();
+        let m = Motif::new(motif_id, description, matrix, "ACGT".to_string());
+        if let Some(m) = apply_motif_operations(m, args) {
+            if !header_printed {
+                print_meme_header();
+            }
+            m.print_meme_motif();
         }
-        print_meme_motif(&motif_id, &description, &matrix);
     }
 
     Ok(())
@@ -306,6 +362,10 @@ fn parse_and_convert_json<R: BufRead>(reader: R, args: &Args) -> io::Result<()> 
                 .get("description")
                 .and_then(|v| v.as_str())
                 .unwrap_or(mid);
+            let alphabet = motif
+                .get("alphabet")
+                .and_then(|v| v.as_str())
+                .unwrap_or("ACGT");
             let matrix = motif.get("matrix").and_then(|v| v.as_array());
 
             if matrix.is_none() {
@@ -336,11 +396,19 @@ fn parse_and_convert_json<R: BufRead>(reader: R, args: &Args) -> io::Result<()> 
             }
 
             if !processed.is_empty() {
-                if !header_printed {
-                    print_meme_header();
-                    header_printed = true;
+                let m = Motif::new(
+                    mid.to_string(),
+                    desc.to_string(),
+                    processed,
+                    alphabet.to_string(),
+                );
+                if let Some(m) = apply_motif_operations(m, args) {
+                    if !header_printed {
+                        print_meme_header();
+                        header_printed = true;
+                    }
+                    m.print_meme_motif();
                 }
-                print_meme_motif(mid, desc, &processed);
             }
         }
     }

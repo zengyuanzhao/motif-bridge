@@ -764,6 +764,126 @@ echo ""
 fi
 
 # ---------------------------------------------------------------------------
+# Test 12: Motif Operations (--rc, --trim-edges, --min-ic)
+# ---------------------------------------------------------------------------
+
+if run_stage 12 "Motif Operations (--rc, --trim-edges, --min-ic)"; then
+
+# Test --rc (reverse complement)
+python3 "$PYTHON/meme2homer.py" -i "$FIXTURES/test.meme" -j JASPAR2026 --rc > "$WORK_DIR/py_rc.homer" 2>/dev/null
+perl "$PERL/meme2homer.pl" -i "$FIXTURES/test.meme" -j JASPAR2026 --rc > "$WORK_DIR/pl_rc.homer" 2>/dev/null
+check_diff "$WORK_DIR/py_rc.homer" "$WORK_DIR/pl_rc.homer" "Python vs Perl --rc"
+
+if [ -n "$RUST_BIN" ]; then
+    "$RUST_BIN/meme2homer" -i "$FIXTURES/test.meme" -j JASPAR2026 --rc > "$WORK_DIR/rs_rc.homer" 2>/dev/null
+    check_diff "$WORK_DIR/py_rc.homer" "$WORK_DIR/rs_rc.homer" "Python vs Rust --rc"
+fi
+
+# Verify RC matrix is actually reversed and columns swapped
+python3 -c "
+import sys
+with open('$WORK_DIR/py_rc.homer') as f:
+    content = f.read()
+# Check RC suffix in headers
+headers = [l.strip()[1:].split('\t')[0] for l in content.split('\n') if l.strip().startswith('>')]
+for h in headers:
+    if not h.endswith('_RC'):
+        print(f'RC suffix missing in header: {h}')
+        sys.exit(1)
+# Check row count matches original
+orig_rows = 0
+with open('$FIXTURES/test.meme') as f:
+    in_matrix = False
+    for line in f:
+        s = line.strip()
+        if s.startswith('letter-probability'):
+            in_matrix = True
+        elif s.startswith('MOTIF') or s.startswith('//'):
+            in_matrix = False
+        elif in_matrix and s and (s[0].isdigit() or s.startswith('.')):
+            orig_rows += 1
+rc_rows = 0
+in_matrix = False
+for line in content.split('\n'):
+    s = line.strip()
+    if s.startswith('>'):
+        in_matrix = True
+        continue
+    if s.startswith('>') == False and in_matrix and s and (s[0].isdigit() or s.startswith('.')):
+        rc_rows += 1
+if orig_rows != rc_rows:
+    print(f'Row count mismatch: original {orig_rows} vs RC {rc_rows}')
+    sys.exit(1)
+print('OK')
+sys.exit(0)
+" > "$WORK_DIR/rc_check.txt" 2>&1
+if [ $? -eq 0 ]; then
+    pass "Reverse complement matrix correctness"
+else
+    fail "Reverse complement matrix correctness" "$(cat "$WORK_DIR/rc_check.txt")"
+fi
+
+# Test --trim-edges
+python3 "$PYTHON/meme2homer.py" -i "$FIXTURES/test.meme" -j JASPAR2026 --trim-edges 0.5 > "$WORK_DIR/py_trim.homer" 2>/dev/null
+perl "$PERL/meme2homer.pl" -i "$FIXTURES/test.meme" -j JASPAR2026 --trim-edges 0.5 > "$WORK_DIR/pl_trim.homer" 2>/dev/null
+check_diff "$WORK_DIR/py_trim.homer" "$WORK_DIR/pl_trim.homer" "Python vs Perl --trim-edges"
+
+if [ -n "$RUST_BIN" ]; then
+    "$RUST_BIN/meme2homer" -i "$FIXTURES/test.meme" -j JASPAR2026 --trim-edges 0.5 > "$WORK_DIR/rs_trim.homer" 2>/dev/null
+    check_diff "$WORK_DIR/py_trim.homer" "$WORK_DIR/rs_trim.homer" "Python vs Rust --trim-edges"
+fi
+
+# Test --min-ic
+python3 "$PYTHON/meme2homer.py" -i "$FIXTURES/test.meme" -j JASPAR2026 --min-ic 100.0 > "$WORK_DIR/py_minic.homer" 2>/dev/null
+perl "$PERL/meme2homer.pl" -i "$FIXTURES/test.meme" -j JASPAR2026 --min-ic 100.0 > "$WORK_DIR/pl_minic.homer" 2>/dev/null
+check_diff "$WORK_DIR/py_minic.homer" "$WORK_DIR/pl_minic.homer" "Python vs Perl --min-ic"
+
+if [ -n "$RUST_BIN" ]; then
+    "$RUST_BIN/meme2homer" -i "$FIXTURES/test.meme" -j JASPAR2026 --min-ic 100.0 > "$WORK_DIR/rs_minic.homer" 2>/dev/null
+    check_diff "$WORK_DIR/py_minic.homer" "$WORK_DIR/rs_minic.homer" "Python vs Rust --min-ic"
+fi
+
+# Verify --min-ic filters out all motifs (threshold too high)
+python3 -c "
+import sys
+with open('$WORK_DIR/py_minic.homer') as f:
+    content = f.read()
+if content.strip() != '':
+    print('Expected empty output for high min-ic threshold')
+    sys.exit(1)
+print('OK')
+sys.exit(0)
+" > "$WORK_DIR/minic_check.txt" 2>&1
+if [ $? -eq 0 ]; then
+    pass "--min-ic filters motifs correctly"
+else
+    fail "--min-ic filters motifs correctly" "$(cat "$WORK_DIR/minic_check.txt")"
+fi
+
+# Test --trim-edges on homer2meme
+python3 "$PYTHON/homer2meme.py" -i "$FIXTURES/test.homer" --trim-edges 0.5 > "$WORK_DIR/py_h2m_trim.meme" 2>/dev/null
+perl "$PERL/homer2meme.pl" -i "$FIXTURES/test.homer" --trim-edges 0.5 > "$WORK_DIR/pl_h2m_trim.meme" 2>/dev/null
+check_diff "$WORK_DIR/py_h2m_trim.meme" "$WORK_DIR/pl_h2m_trim.meme" "Python vs Perl homer2meme --trim-edges"
+
+if [ -n "$RUST_BIN" ]; then
+    "$RUST_BIN/homer2meme" -i "$FIXTURES/test.homer" --trim-edges 0.5 > "$WORK_DIR/rs_h2m_trim.meme" 2>/dev/null
+    check_diff "$WORK_DIR/py_h2m_trim.meme" "$WORK_DIR/rs_h2m_trim.meme" "Python vs Rust homer2meme --trim-edges"
+fi
+
+# Test --rc on homer2meme
+python3 "$PYTHON/homer2meme.py" -i "$FIXTURES/test.homer" --rc > "$WORK_DIR/py_h2m_rc.meme" 2>/dev/null
+perl "$PERL/homer2meme.pl" -i "$FIXTURES/test.homer" --rc > "$WORK_DIR/pl_h2m_rc.meme" 2>/dev/null
+check_diff "$WORK_DIR/py_h2m_rc.meme" "$WORK_DIR/pl_h2m_rc.meme" "Python vs Perl homer2meme --rc"
+
+if [ -n "$RUST_BIN" ]; then
+    "$RUST_BIN/homer2meme" -i "$FIXTURES/test.homer" --rc > "$WORK_DIR/rs_h2m_rc.meme" 2>/dev/null
+    check_diff "$WORK_DIR/py_h2m_rc.meme" "$WORK_DIR/rs_h2m_rc.meme" "Python vs Rust homer2meme --rc"
+fi
+
+echo ""
+fi
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 

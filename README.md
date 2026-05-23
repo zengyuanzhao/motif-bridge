@@ -8,6 +8,10 @@ A cross-language toolkit for bridging the **MEME** and **HOMER** motif analysis 
 
 MEME and HOMER are widely used platforms for motif analysis, but their motif file formats are not directly interoperable. This project provides bidirectional motif matrix conversion tools implemented in **Perl**, **Python**, and **Rust**, allowing users to move standard DNA motif matrices between the two ecosystems.
 
+The project is also available as a reusable library:
+- **Python SDK**: `from motif_bridge.core import Motif`
+- **Rust Crate**: `motif_bridge::Motif`
+
 The converters preserve motif matrix content for standard A/C/G/T motifs after numeric formatting. Some format-specific metadata, such as HOMER log-p, pseudo-counts, sites, and MEME `nsites` or `E` values, may be regenerated or set to documented defaults during conversion.
 
 ---
@@ -69,15 +73,20 @@ motif-bridge/
 ├── perl_scripts/          # Perl 5, runs on most servers without compilation
 │   ├── meme2homer.pl
 │   └── homer2meme.pl
-├── python_scripts/        # Python 3.6+, zero external dependencies
+├── python_scripts/        # Python 3.8+, also available as SDK
+│   ├── motif_bridge/      # Reusable Python library
+│   │   ├── __init__.py
+│   │   └── core.py
 │   ├── meme2homer.py
 │   └── homer2meme.py
-└── rust_scripts/          # Rust implementation, Cargo project
+└── rust_scripts/          # Rust implementation, also available as Crate
     ├── Cargo.toml
     ├── Cargo.lock
-    └── src/bin/
-        ├── meme2homer.rs
-        └── homer2meme.rs
+    └── src/
+        ├── lib.rs         # Reusable Rust library (motif_bridge crate)
+        └── bin/
+            ├── meme2homer.rs
+            └── homer2meme.rs
 ```
 
 All three language implementations share the same main CLI flags and are intended to produce matching output for valid standard DNA MEME/HOMER inputs. Choose the implementation that fits your environment.
@@ -136,6 +145,9 @@ cd rust_scripts && cargo build --release && cd ..
 | `-t <float>` | Threshold offset subtracted from log-odds score (log2 bits) | `4.0` |
 | `-f, --format <fmt>` | Output format: `homer` or `json` | `homer` |
 | `--alphabet <string>` | Alphabet (`ACGT`, `ACGU`, or `PROTEIN`) | `ACGT` |
+| `--rc` | Output the reverse complement of the motif (DNA/RNA only) | *(off)* |
+| `--trim-edges <float>` | Trim edges with Information Content below threshold | `0.0` |
+| `--min-ic <float>` | Filter out motifs with total Information Content below threshold | `0.0` |
 | `-h` | Show help | |
 
 ### homer2meme (all implementations)
@@ -147,6 +159,9 @@ cd rust_scripts && cargo build --release && cd ..
 | `-a <float>` | Pseudocount for log-odds to probability conversion | `0.01` |
 | `-f, --format <fmt>` | Input format: `homer` or `json` | `homer` |
 | `--input-format <fmt>` | Matrix type: `auto`, `logodds`, or `probability` | `auto` |
+| `--rc` | Output the reverse complement of the motif (DNA/RNA only) | *(off)* |
+| `--trim-edges <float>` | Trim edges with Information Content below threshold | `0.0` |
+| `--min-ic <float>` | Filter out motifs with total Information Content below threshold | `0.0` |
 | `-h` | Show help | |
 
 Note: `homer2meme` auto-detects log-odds vs probability rows by checking whether row sum is near 1.0 (`[0.98, 1.02]`). This is a practical heuristic and may be ambiguous for edge-case inputs whose log-odds rows also sum near 1.0.
@@ -192,6 +207,92 @@ threshold = max(threshold, 0)
 
 ---
 
+## Motif Operations
+
+### Reverse Complement (`--rc`)
+
+Reverses the matrix order and swaps A↔T, C↔G columns. Automatically appends `_RC` to the motif ID.
+
+```bash
+meme2homer -i motifs.meme --rc > motifs_rc.homer
+```
+
+### Edge Trimming (`--trim-edges`)
+
+Calculates Information Content (IC) per position and trims non-conserved edges below the threshold (in bits).
+
+```bash
+meme2homer -i motifs.meme --trim-edges 0.5 > motifs_trimmed.homer
+```
+
+### Information Content Filter (`--min-ic`)
+
+Filters out low-quality motifs whose total IC falls below the threshold.
+
+```bash
+meme2homer -i motifs.meme --min-ic 5.0 > motifs_filtered.homer
+```
+
+---
+
+## SDK / Library Usage
+
+### Python SDK
+
+```python
+from motif_bridge.core import Motif
+
+# Create a motif from a probability matrix
+motif = Motif(
+    id="MA0021.1",
+    description="CTCF/JASPAR2026",
+    matrix=[[0.35, 0.15, 0.16, 0.34], [0.10, 0.40, 0.40, 0.10]],
+    alphabet="ACGT"
+)
+
+# Calculate Information Content
+print(motif.total_ic())
+
+# Reverse complement
+motif.reverse_complement()
+
+# Trim low-IC edges
+motif.trim_edges(threshold=0.5)
+
+# Serialize to dict
+data = motif.to_dict()
+```
+
+### Rust Crate
+
+Add to your `Cargo.toml`:
+
+```toml
+[dependencies]
+motif-bridge = "0.2"
+```
+
+```rust
+use motif_bridge::Motif;
+
+let mut motif = Motif::new(
+    "MA0021.1".to_string(),
+    "CTCF/JASPAR2026".to_string(),
+    vec![
+        vec![0.35, 0.15, 0.16, 0.34],
+        vec![0.10, 0.40, 0.40, 0.10],
+    ],
+    "ACGT".to_string(),
+);
+
+let ic = motif.total_ic();
+motif.reverse_complement().unwrap();
+motif.trim_edges(0.5);
+motif.print_homer(0.25, 4.0);
+```
+
+---
+
 ## Metadata and Round-trip Limits
 
 The current converters focus on standard DNA motif matrices. During conversion, some metadata fields are written as defaults:
@@ -232,13 +333,14 @@ Run `bash test_motif_bridge.sh` locally. The test suite covers:
 | 8. JSON I/O | Validate JSON output structure and round-trip |
 | 9. Explicit input format | Test `--input-format` flag (auto/logodds/probability) |
 | 10. Alphabet support | Test `--alphabet` flag for RNA/Protein motifs |
+| 11. Motif operations | Test `--rc`, `--trim-edges`, and `--min-ic` flags |
 
 ### Latest test result
 
 | Metric | Value |
 |---|---|
-| Total checks | 40 |
-| Passed | **40** ✅ |
+| Total checks | 52 |
+| Passed | **52** ✅ |
 | Failed | 0 |
 | Skipped | 0 |
 

@@ -1,1 +1,0 @@
-"""motif-bridge Python implementation."""

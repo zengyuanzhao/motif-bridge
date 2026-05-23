@@ -12,6 +12,9 @@ my $bg          = 0.25;
 my $t_offset    = 4;
 my $output_fmt  = 'homer';
 my $alphabet    = 'ACGT';
+my $do_rc       = 0;
+my $trim_edges  = 0;
+my $min_ic      = 0;
 
 GetOptions(
     'i=s' => \$input,
@@ -23,6 +26,9 @@ GetOptions(
     'f=s' => \$output_fmt,
     'format=s' => \$output_fmt,
     'alphabet=s' => \$alphabet,
+    'rc'    => \$do_rc,
+    'trim-edges=f' => \$trim_edges,
+    'min-ic=f' => \$min_ic,
     'h'   => sub { usage() },
 ) or usage();
 
@@ -61,17 +67,7 @@ while (<$fh>) {
 
     if (/^MOTIF\s+(\S+)(?:\s+(.*))?/) {
         if ($in_motif && @matrix) {
-            if ($output_fmt eq 'json') {
-                push @motifs, {
-                    id => $motif_id,
-                    description => $description,
-                    matrix => [map { [@$_] } @matrix],
-                    alphabet => $alphabet,
-                };
-            } else {
-                my $score = calculate_score(\@matrix, $bg, $t_offset);
-                print_motif($motif_id, $description, $score, \@matrix);
-            }
+            process_motif($motif_id, $description, \@matrix, $bg, $t_offset, $output_fmt, \@motifs);
         }
 
         $in_motif  = 1;
@@ -108,17 +104,7 @@ while (<$fh>) {
     }
     if (/^\/\//) {
         if (@matrix) {
-            if ($output_fmt eq 'json') {
-                push @motifs, {
-                    id => $motif_id,
-                    description => $description,
-                    matrix => [map { [@$_] } @matrix],
-                    alphabet => $alphabet,
-                };
-            } else {
-                my $score = calculate_score(\@matrix, $bg, $t_offset);
-                print_motif($motif_id, $description, $score, \@matrix);
-            }
+            process_motif($motif_id, $description, \@matrix, $bg, $t_offset, $output_fmt, \@motifs);
         }
         $in_motif  = 0;
         $in_matrix = 0;
@@ -139,17 +125,7 @@ while (<$fh>) {
 }
 
 if ($in_motif && @matrix) {
-    if ($output_fmt eq 'json') {
-        push @motifs, {
-            id => $motif_id,
-            description => $description,
-            matrix => [map { [@$_] } @matrix],
-                    alphabet => $alphabet,
-        };
-    } else {
-        my $score = calculate_score(\@matrix, $bg, $t_offset);
-        print_motif($motif_id, $description, $score, \@matrix);
-    }
+    process_motif($motif_id, $description, \@matrix, $bg, $t_offset, $output_fmt, \@motifs);
 }
 
 if ($input ne '-') {
@@ -162,6 +138,46 @@ if ($input ne '-') {
 
 if ($output_fmt eq 'json') {
     print_json(\@motifs);
+}
+
+# ---------------------------------------------------------------------------
+
+sub process_motif {
+    my ($id, $desc, $matrix_ref, $bg, $t_offset, $output_fmt, $motifs_ref) = @_;
+
+    my @mat = @$matrix_ref;
+
+    if ($do_rc) {
+        if ($alphabet eq 'ACGT' || $alphabet eq 'ACGU') {
+            @mat = reverse_complement(\@mat, \$id);
+        } else {
+            warn "Warning: reverse complement not supported for alphabet: $alphabet\n";
+        }
+    }
+
+    if ($trim_edges > 0) {
+        @mat = trim_edges(\@mat, $trim_edges, $alphabet);
+        if (!@mat) {
+            warn "Warning: motif '$id' trimmed to empty matrix (IC threshold=$trim_edges)\n";
+            return;
+        }
+    }
+
+    if ($min_ic > 0 && total_ic(\@mat, $alphabet) < $min_ic) {
+        return;
+    }
+
+    if ($output_fmt eq 'json') {
+        push @$motifs_ref, {
+            id => $id,
+            description => $desc,
+            matrix => [map { [@$_] } @mat],
+            alphabet => $alphabet,
+        };
+    } else {
+        my $score = calculate_score(\@mat, $bg, $t_offset);
+        print_motif($id, $desc, $score, \@mat);
+    }
 }
 
 # ---------------------------------------------------------------------------
@@ -184,6 +200,59 @@ sub calculate_score {
 sub log2 {
     my ($x) = @_;
     return log($x) / log(2);
+}
+
+sub calculate_ic {
+    my ($matrix_ref, $alphabet) = @_;
+    my $max_ic = ($alphabet eq 'PROTEIN') ? log2(20) : 2.0;
+    my @ic_list;
+    foreach my $row (@$matrix_ref) {
+        my $h = 0;
+        foreach my $p (@$row) {
+            $h -= $p * log2($p) if $p > 0;
+        }
+        my $ic = $max_ic - $h;
+        $ic = 0 if $ic < 0;
+        push @ic_list, $ic;
+    }
+    return @ic_list;
+}
+
+sub total_ic {
+    my ($matrix_ref, $alphabet) = @_;
+    my @ic = calculate_ic($matrix_ref, $alphabet);
+    my $sum = 0;
+    $sum += $_ for @ic;
+    return $sum;
+}
+
+sub reverse_complement {
+    my ($matrix_ref, $id_ref) = @_;
+    my @rev = reverse @$matrix_ref;
+    my @rc;
+    for my $row (@rev) {
+        push @rc, [$row->[3], $row->[2], $row->[1], $row->[0]];
+    }
+    $$id_ref .= '_RC';
+    return @rc;
+}
+
+sub trim_edges {
+    my ($matrix_ref, $threshold, $alphabet) = @_;
+    my @ic = calculate_ic($matrix_ref, $alphabet);
+    my $start = 0;
+    while ($start < scalar(@ic) && $ic[$start] < $threshold) {
+        $start++;
+    }
+    my $end = scalar(@ic);
+    while ($end > $start && $ic[$end - 1] < $threshold) {
+        $end--;
+    }
+    if ($start < $end) {
+        return @$matrix_ref[$start .. $end - 1];
+    } else {
+        return ();
+    }
 }
 
 sub print_motif {
@@ -252,6 +321,9 @@ Options:
     -t <float>   Threshold offset in log2 bits (default: 4)
     -f, --format <fmt>  Output format: homer (default) or json
     --alphabet <str> Alphabet: ACGT (DNA, default), ACGU (RNA), or PROTEIN
+    --rc                Output the reverse complement of the motif (DNA/RNA only)
+    --trim-edges <float> Trim edges with information content below threshold
+    --min-ic <float>    Filter out motifs with total information content below threshold
     -h           Show this help
 
 Examples:
@@ -259,6 +331,7 @@ Examples:
     $0 -i raw/motifs.meme.gz -e MA0021.1
     $0 -i motifs.meme -b 0.25 -t 6
     $0 -i motifs.meme -f json > motifs.json
+    $0 -i motifs.meme --rc
     cat motifs.meme | $0 -i -
 
 EOF

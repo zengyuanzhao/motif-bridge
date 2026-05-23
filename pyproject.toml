@@ -23,7 +23,8 @@ meme2homer-py = "python_scripts.meme2homer:main"
 homer2meme-py = "python_scripts.homer2meme:main"
 
 [tool.setuptools.packages.find]
-include = ["python_scripts*"]
+include = ["motif_bridge*", "python_scripts*"]
+where = ["."]
 
 [tool.ruff]
 line-length = 100
