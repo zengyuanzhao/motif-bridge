@@ -58,6 +58,7 @@ def read_meme(fh: TextIO, alphabet: str = "ACGT") -> Iterator[Motif]:
 
         if stripped.startswith("MOTIF"):
             if len(stripped) > 5 and not stripped[5].isspace():
+                in_matrix = False
                 continue
             if in_motif and matrix:
                 yield Motif(motif_id, description, matrix, alphabet)
@@ -251,7 +252,7 @@ def write_meme(motifs: Iterable[Motif], fh: TextIO) -> None:
             continue
 
         width = len(m.matrix)
-        expected_cols = len(ALPHABETS.get(m.alphabet, m.alphabet))
+        expected_cols = len(_alphabet_letters(m.alphabet))
         fh.write(f"MOTIF {m.id} {m.description}\n\n")
         fh.write(f"letter-probability matrix: alength= {expected_cols} w= {width} nsites= 20 E= 0\n")
         for row in m.matrix:

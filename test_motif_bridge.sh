@@ -520,6 +520,22 @@ python3 "$PYTHON/meme2homer.py" -i "$FIXTURES/test.meme" -j JASPAR2026 -f json >
 perl "$PERL/meme2homer.pl" -i "$FIXTURES/test.meme" -j JASPAR2026 -f json > "$WORK_DIR/pl_json.json" 2>&1
 check_diff "$WORK_DIR/py_json.json" "$WORK_DIR/pl_json.json" "Python vs Perl JSON output"
 
+# Unicode descriptions should be escaped consistently
+python3 "$PYTHON/meme2homer.py" -i "$FIXTURES/test_unicode_desc.meme" -j JASPAR2026 -f json > "$WORK_DIR/py_unicode.json" 2>&1
+perl "$PERL/meme2homer.pl" -i "$FIXTURES/test_unicode_desc.meme" -j JASPAR2026 -f json > "$WORK_DIR/pl_unicode.json" 2>&1
+check_diff "$WORK_DIR/py_unicode.json" "$WORK_DIR/pl_unicode.json" "Python vs Perl JSON unicode"
+
+if [ -n "$RUST_BIN" ]; then
+    "$RUST_BIN/meme2homer" -i "$FIXTURES/test_unicode_desc.meme" -j JASPAR2026 -f json > "$WORK_DIR/rs_unicode.json" 2>&1
+    check_diff "$WORK_DIR/py_unicode.json" "$WORK_DIR/rs_unicode.json" "Python vs Rust JSON unicode"
+fi
+
+if grep -qi "\\\\u03b1" "$WORK_DIR/py_unicode.json"; then
+    pass "Unicode descriptions escaped"
+else
+    fail "Unicode descriptions escaped" "$(cat "$WORK_DIR/py_unicode.json")"
+fi
+
 # Validate JSON structure
 python3 -c "
 import json, sys
@@ -965,11 +981,25 @@ else
     fail "Python ignores MOTIFY line" "expected 1 motif, got $py_count"
 fi
 
+py_rows=$(grep -E '^[0-9.-]' "$WORK_DIR/py_boundary.homer" | wc -l | tr -d ' ')
+if [ "$py_rows" -eq 2 ]; then
+    pass "Python MOTIF row count"
+else
+    fail "Python MOTIF row count" "expected 2 rows, got $py_rows"
+fi
+
 pl_count=$(grep -c '^>' "$WORK_DIR/pl_boundary.homer" || true)
 if [ "$pl_count" -eq 1 ]; then
     pass "Perl ignores MOTIFY line"
 else
     fail "Perl ignores MOTIFY line" "expected 1 motif, got $pl_count"
+fi
+
+pl_rows=$(grep -E '^[0-9.-]' "$WORK_DIR/pl_boundary.homer" | wc -l | tr -d ' ')
+if [ "$pl_rows" -eq 2 ]; then
+    pass "Perl MOTIF row count"
+else
+    fail "Perl MOTIF row count" "expected 2 rows, got $pl_rows"
 fi
 
 if [ -n "$RUST_BIN" ]; then
@@ -978,6 +1008,13 @@ if [ -n "$RUST_BIN" ]; then
         pass "Rust ignores MOTIFY line"
     else
         fail "Rust ignores MOTIFY line" "expected 1 motif, got $rs_count"
+    fi
+
+    rs_rows=$(grep -E '^[0-9.-]' "$WORK_DIR/rs_boundary.homer" | wc -l | tr -d ' ')
+    if [ "$rs_rows" -eq 2 ]; then
+        pass "Rust MOTIF row count"
+    else
+        fail "Rust MOTIF row count" "expected 2 rows, got $rs_rows"
     fi
 fi
 

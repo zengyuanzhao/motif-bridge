@@ -66,6 +66,7 @@ if ($input eq '-') {
 } else {
     open $fh, '<', $input or die "Cannot open $input: $!";
 }
+binmode($fh, ':encoding(UTF-8)');
 
 my $in_motif  = 0;
 my $in_matrix = 0;
@@ -79,7 +80,7 @@ while (<$fh>) {
 
     if (/^MOTIF\s+(\S+)(?:\s+(.*))?/) {
         if ($in_motif && @matrix) {
-            process_motif($motif_id, $description, \@matrix, \%config, \@motifs);
+            process_meme_motif($motif_id, $description, \@matrix, \%config, \@motifs);
         }
 
         $in_motif  = 1;
@@ -103,6 +104,11 @@ while (<$fh>) {
 
     next unless $in_motif;
 
+    if (/^MOTIF\S/) {
+        $in_matrix = 0;
+        next;
+    }
+
     if (/^letter-probability matrix:/) {
         $in_matrix = 1;
         if (/alength=\s*(\d+)/) {
@@ -116,7 +122,7 @@ while (<$fh>) {
     }
     if (/^\/\//) {
         if (@matrix) {
-            process_motif($motif_id, $description, \@matrix, \%config, \@motifs);
+            process_meme_motif($motif_id, $description, \@matrix, \%config, \@motifs);
         }
         $in_motif  = 0;
         $in_matrix = 0;
@@ -140,7 +146,7 @@ while (<$fh>) {
 }
 
 if ($in_motif && @matrix) {
-    process_motif($motif_id, $description, \@matrix, \%config, \@motifs);
+    process_meme_motif($motif_id, $description, \@matrix, \%config, \@motifs);
 }
 
 if ($input ne '-') {
@@ -157,7 +163,7 @@ if ($config{output_fmt} eq 'json') {
 
 # ---------------------------------------------------------------------------
 
-sub process_motif {
+sub process_meme_motif {
     my ($id, $desc, $matrix_ref, $config, $motifs_ref) = @_;
 
     my @mat = @$matrix_ref;
@@ -282,7 +288,7 @@ sub print_motif {
 sub print_json {
     my ($motifs_ref) = @_;
     require JSON::PP;
-    my $encoder = JSON::PP->new->allow_nonref;
+    my $encoder = JSON::PP->new->allow_nonref->ascii(1);
     print "{\n";
     print "  \"version\": \"1.0\",\n";
     print "  \"source\": \"meme\",\n";

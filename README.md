@@ -18,9 +18,9 @@ The converters preserve motif matrix content for standard A/C/G/T motifs after n
 
 ## Installation
 
-> **⚠️ Note on version 0.2.0**: The new features described in this document (Python SDK, Rust Crate library, JSON I/O, Motif operations like `--rc` and `--trim-edges`) are currently in the `main` branch. The published versions on Bioconda and Crates.io are currently at `v0.1.0`. To use the `v0.2.0` features, please install from source.
+> **⚠️ Note on published packages**: Releases on Bioconda and Crates.io may lag behind `main`. For the latest features, install from source (see the Git-based install below).
 
-### Bioconda (v0.1.0 only)
+### Bioconda (published releases)
 
 ```bash
 conda install -c bioconda motif-bridge
@@ -356,8 +356,8 @@ Run `bash test_motif_bridge.sh` locally. The test suite covers:
 
 | Metric | Value |
 |---|---|
-| Total checks | 75 |
-| Passed | **75** ✅ |
+| Total checks | 81 |
+| Passed | **81** ✅ |
 | Failed | 0 |
 | Skipped | 0 |
 

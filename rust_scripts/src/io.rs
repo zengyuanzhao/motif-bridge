@@ -55,7 +55,34 @@ pub fn logodds_to_prob(row: &[f64], pseudocount: f64, background: f64) -> Vec<f6
 }
 
 fn json_string(value: &str) -> String {
-    serde_json::to_string(value).unwrap_or_else(|_| format!("{:?}", value))
+    let mut out = String::with_capacity(value.len() + 2);
+    out.push('"');
+    for ch in value.chars() {
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            '\u{08}' => out.push_str("\\b"),
+            '\u{0C}' => out.push_str("\\f"),
+            c if c <= '\u{1F}' => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c if c <= '\u{7F}' => out.push(c),
+            c => {
+                let code = c as u32;
+                if code <= 0xFFFF {
+                    out.push_str(&format!("\\u{:04x}", code));
+                } else {
+                    let n = code - 0x1_0000;
+                    let high = 0xD800 + ((n >> 10) & 0x3FF);
+                    let low = 0xDC00 + (n & 0x3FF);
+                    out.push_str(&format!("\\u{:04x}\\u{:04x}", high, low));
+                }
+            }
+        }
+    }
+    out.push('"');
+    out
 }
 
 pub fn read_meme<R: BufRead>(reader: R, alphabet_arg: &str) -> Result<Vec<Motif>, MotifError> {
@@ -80,6 +107,7 @@ pub fn read_meme<R: BufRead>(reader: R, alphabet_arg: &str) -> Result<Vec<Motif>
                     .map(|c| c.is_whitespace())
                     .unwrap_or(false)
             {
+                in_matrix = false;
                 continue;
             }
             if in_motif && !matrix.is_empty() {

@@ -151,7 +151,7 @@ sub trim_edges {
     }
 }
 
-sub process_motif {
+sub process_homer_motif {
     my ($id, $desc, $matrix_ref, $header_ref, $header_alphabet_ref, $config) = @_;
 
     my @mat = @$matrix_ref;
@@ -245,7 +245,7 @@ sub parse_and_convert_homer {
             my $rest = $1;
 
             if ($in_motif && @matrix) {
-                process_motif($motif_id, $description, \@matrix, \$header_printed, \$header_alphabet, $config);
+                process_homer_motif($motif_id, $description, \@matrix, \$header_printed, \$header_alphabet, $config);
             }
             @matrix = ();
 
@@ -290,7 +290,7 @@ sub parse_and_convert_homer {
     }
 
     if ($in_motif && @matrix) {
-        process_motif($motif_id, $description, \@matrix, \$header_printed, \$header_alphabet, $config);
+        process_homer_motif($motif_id, $description, \@matrix, \$header_printed, \$header_alphabet, $config);
     }
 }
 
@@ -358,7 +358,7 @@ sub parse_and_convert_json {
             my %local_config = %$config;
             $local_config{alphabet} = $m->{alphabet};
             $local_config{expected_cols} = $m->{expected_cols};
-            process_motif(
+            process_homer_motif(
                 $m->{id},
                 $m->{desc},
                 $m->{matrix},
