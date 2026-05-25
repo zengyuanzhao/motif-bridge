@@ -80,9 +80,7 @@ def read_meme(fh: TextIO, alphabet_override: Optional[str] = None) -> Iterator[M
             parts = stripped.split()
             mid = parts[1] if len(parts) > 1 else ""
             if not mid:
-                sys.stderr.write(
-                    f"Warning: skipping malformed MOTIF line without ID: {stripped}\n"
-                )
+                sys.stderr.write(f"Warning: skipping malformed MOTIF line without ID: {stripped}\n")
                 in_motif = False
                 in_matrix = False
                 matrix = []
@@ -122,11 +120,7 @@ def read_meme(fh: TextIO, alphabet_override: Optional[str] = None) -> Iterator[M
         if (
             in_matrix
             and stripped
-            and (
-                stripped[0].isdigit()
-                or stripped.startswith(".")
-                or stripped.startswith("-")
-            )
+            and (stripped[0].isdigit() or stripped.startswith(".") or stripped.startswith("-"))
         ):
             tokens = stripped.split()
             try:
@@ -284,8 +278,7 @@ def write_meme(motifs: Iterable[Motif], fh: TextIO) -> None:
         expected_cols = len(_alphabet_letters(m.alphabet))
         fh.write(f"MOTIF {m.id} {m.description}\n\n")
         fh.write(
-            f"letter-probability matrix: alength= {expected_cols} "
-            f"w= {width} nsites= 20 E= 0\n"
+            f"letter-probability matrix: alength= {expected_cols} w= {width} nsites= 20 E= 0\n"
         )
         for row in m.matrix:
             fh.write("  " + "  ".join(f"{v:.6f}" for v in row) + "\n")
