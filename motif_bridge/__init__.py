@@ -1,19 +1,19 @@
 from .core import Motif
 from .io import (
-    read_meme,
     read_homer,
     read_json,
-    write_meme,
+    read_meme,
     write_homer,
     write_json,
+    write_meme,
 )
 
 __all__ = [
     "Motif",
-    "read_meme",
     "read_homer",
     "read_json",
-    "write_meme",
+    "read_meme",
     "write_homer",
     "write_json",
+    "write_meme",
 ]
