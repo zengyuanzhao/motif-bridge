@@ -160,7 +160,12 @@ sub process_homer_motif {
     my @mat = @$matrix_ref;
 
     if ($config->{do_rc}) {
-        @mat = reverse_complement(\@mat, \$id);
+        if ($config->{alphabet} eq 'ACGT' || $config->{alphabet} eq 'ACGU') {
+            @mat = reverse_complement(\@mat, \$id);
+        } else {
+            warn "Warning: skipping motif '$id': reverse complement not supported for alphabet: $config->{alphabet}\n";
+            return;
+        }
     }
 
     if ($config->{trim_edges} > 0) {
@@ -208,8 +213,10 @@ sub print_meme_header {
     print "\n";
     print "ALPHABET= $alphabet\n";
     print "\n";
-    print "strands: + -\n";
-    print "\n";
+    if ($alphabet eq 'ACGT' || $alphabet eq 'ACGU') {
+        print "strands: + -\n";
+        print "\n";
+    }
     print "Background letter frequencies\n";
     print background_line($alphabet) . "\n";
     print "\n";

@@ -186,7 +186,8 @@ sub process_meme_motif {
         if ($alphabet eq 'ACGT' || $alphabet eq 'ACGU') {
             @mat = reverse_complement(\@mat, \$id);
         } else {
-            warn "Warning: reverse complement not supported for alphabet: $alphabet\n";
+            warn "Warning: skipping motif '$id': reverse complement not supported for alphabet: $alphabet\n";
+            return;
         }
     }
 

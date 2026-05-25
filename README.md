@@ -174,6 +174,7 @@ cd rust_scripts && cargo build --release && cd ..
 | `-h` | Show help | |
 
 Note: `homer2meme` auto-detects log-odds vs probability rows by checking whether row sum is near 1.0 (`[0.98, 1.02]`). This is a practical heuristic and may be ambiguous for edge-case inputs whose log-odds rows also sum near 1.0.
+When the source format is known, prefer `--input-format logodds` or `--input-format probability` to avoid misclassification.
 
 ---
 

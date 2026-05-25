@@ -128,7 +128,11 @@ def process_motifs(motifs, args):
         m.description = f"{args.k or original_name}/{args.j}"
 
         if args.rc:
-            m.reverse_complement()
+            try:
+                m.reverse_complement()
+            except ValueError as exc:
+                sys.stderr.write(f"Warning: skipping motif '{m.id}': {exc}\n")
+                continue
         if args.trim_edges > 0:
             m.trim_edges(args.trim_edges)
         if not m.matrix:

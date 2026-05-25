@@ -382,7 +382,9 @@ pub fn write_meme<W: Write>(writer: &mut W, motifs: &[Motif]) -> Result<(), Moti
             header_alphabet = motif.alphabet.clone();
             writeln!(writer, "MEME version 4\n")?;
             writeln!(writer, "ALPHABET= {}\n", motif.alphabet)?;
-            writeln!(writer, "strands: + -\n")?;
+            if motif.alphabet == "ACGT" || motif.alphabet == "ACGU" {
+                writeln!(writer, "strands: + -\n")?;
+            }
             writeln!(writer, "Background letter frequencies")?;
             writeln!(writer, "{}\n", background_line(&motif.alphabet))?;
             header_printed = true;

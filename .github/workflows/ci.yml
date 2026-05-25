@@ -50,6 +50,17 @@ jobs:
           homer2meme-py -i fixtures/test.homer > /tmp/entry_h2m.meme
           diff -u /tmp/entry_h2m.meme fixtures/expected_homer2meme.meme
 
+      - name: Build and install wheel
+        run: |
+          python -m pip install build
+          python -m build
+          python -m pip uninstall -y motif-bridge
+          python -m pip install dist/*.whl
+          meme2homer-py -i fixtures/test.meme -j JASPAR2026 > /tmp/wheel_m2h.homer
+          diff -u /tmp/wheel_m2h.homer fixtures/expected_meme2homer.homer
+          homer2meme-py -i fixtures/test.homer > /tmp/wheel_h2m.meme
+          diff -u /tmp/wheel_h2m.meme fixtures/expected_homer2meme.meme
+
   rust-lint:
     runs-on: ubuntu-latest
     steps:
@@ -78,6 +89,10 @@ jobs:
         working-directory: rust_scripts
         run: cargo clippy -- -D warnings
 
+      - name: Run Rust tests
+        working-directory: rust_scripts
+        run: cargo test
+
   python-lint:
     runs-on: ubuntu-latest
     steps:
@@ -92,10 +107,10 @@ jobs:
         run: pip install ruff==0.9.6
 
       - name: Run ruff check
-        run: ruff check python_scripts/
+        run: ruff check python_scripts/ motif_bridge/
 
       - name: Run ruff format check
-        run: ruff format --check python_scripts/
+        run: ruff format --check python_scripts/ motif_bridge/
 
   perl-lint:
     runs-on: ubuntu-latest

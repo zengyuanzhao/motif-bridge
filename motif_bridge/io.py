@@ -239,7 +239,8 @@ def write_meme(motifs: Iterable[Motif], fh: TextIO) -> None:
             header_alphabet = m.alphabet
             fh.write("MEME version 4\n\n")
             fh.write(f"ALPHABET= {m.alphabet}\n\n")
-            fh.write("strands: + -\n\n")
+            if m.alphabet in ("ACGT", "ACGU"):
+                fh.write("strands: + -\n\n")
             fh.write("Background letter frequencies\n")
             fh.write(_format_background_line(m.alphabet) + "\n\n")
             header_printed = True

@@ -112,6 +112,26 @@ check_exit() {
     fi
 }
 
+ensure_m2h_baseline() {
+    if [ ! -f "$WORK_DIR/py_m2h.homer" ]; then
+        python3 "$PYTHON/meme2homer.py" -i "$FIXTURES/test.meme" -j JASPAR2026 > "$WORK_DIR/py_m2h.homer" 2>&1
+        perl "$PERL/meme2homer.pl" -i "$FIXTURES/test.meme" -j JASPAR2026 > "$WORK_DIR/pl_m2h.homer" 2>&1
+        if [ -n "$RUST_BIN" ]; then
+            "$RUST_BIN/meme2homer" -i "$FIXTURES/test.meme" -j JASPAR2026 > "$WORK_DIR/rs_m2h.homer" 2>&1
+        fi
+    fi
+}
+
+ensure_h2m_baseline() {
+    if [ ! -f "$WORK_DIR/py_h2m.meme" ]; then
+        python3 "$PYTHON/homer2meme.py" -i "$FIXTURES/test.homer" > "$WORK_DIR/py_h2m.meme" 2>&1
+        perl "$PERL/homer2meme.pl" -i "$FIXTURES/test.homer" > "$WORK_DIR/pl_h2m.meme" 2>&1
+        if [ -n "$RUST_BIN" ]; then
+            "$RUST_BIN/homer2meme" -i "$FIXTURES/test.homer" > "$WORK_DIR/rs_h2m.meme" 2>&1
+        fi
+    fi
+}
+
 # ---------------------------------------------------------------------------
 # Prerequisites
 # ---------------------------------------------------------------------------
@@ -225,6 +245,9 @@ fi
 
 if run_stage 4 "stdin support"; then
 
+ensure_m2h_baseline
+ensure_h2m_baseline
+
 cat "$FIXTURES/test.meme" | python3 "$PYTHON/meme2homer.py" -i - -j JASPAR2026 > "$WORK_DIR/stdin_py.homer" 2>&1
 check_diff "$WORK_DIR/stdin_py.homer" "$WORK_DIR/py_m2h.homer" "Python meme2homer stdin"
 
@@ -251,6 +274,9 @@ fi
 # ---------------------------------------------------------------------------
 
 if run_stage 5 "gzip input support"; then
+
+ensure_m2h_baseline
+ensure_h2m_baseline
 
 python3 "$PYTHON/meme2homer.py" -i "$FIXTURES/test.meme.gz" -j JASPAR2026 > "$WORK_DIR/gz_py.homer" 2>&1
 check_diff "$WORK_DIR/gz_py.homer" "$WORK_DIR/py_m2h.homer" "Python meme2homer gzip"
