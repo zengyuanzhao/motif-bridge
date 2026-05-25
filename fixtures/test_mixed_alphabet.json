@@ -1,0 +1,24 @@
+{
+  "version": "1.0",
+  "source": "meme",
+  "motifs": [
+    {
+      "id": "MIXED_DNA",
+      "description": "DNA motif",
+      "alphabet": "ACGT",
+      "matrix": [
+        [0.1, 0.2, 0.3, 0.4],
+        [0.25, 0.25, 0.25, 0.25]
+      ]
+    },
+    {
+      "id": "MIXED_RNA",
+      "description": "RNA motif",
+      "alphabet": "ACGU",
+      "matrix": [
+        [0.25, 0.25, 0.25, 0.25],
+        [0.4, 0.1, 0.2, 0.3]
+      ]
+    }
+  ]
+}

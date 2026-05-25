@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.2.0] - 2026-05-21
 
 ### Added
-- CLI regression test suite (`test_motif_bridge.sh`) with 59 checks across Python, Perl, and Rust implementations
+- CLI regression test suite (`test_motif_bridge.sh`) with 75 checks across Python, Perl, and Rust implementations
 - Fixture files for testing (`fixtures/`)
 - GitHub Actions CI workflow (`.github/workflows/ci.yml`)
 - `.gitignore` for Rust, Python, and OS artifacts
@@ -18,7 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - JSON input format (`-f json`) for homer2meme (Python/Rust/Perl)
 - `--input-format` flag to explicitly specify matrix type (auto/logodds/probability)
 - `--alphabet` flag for RNA (ACGU) and PROTEIN motif support
-- Test stages 10 (--input-format) and 11 (--alphabet) to test suite
+- `--alphabet` and `--background` flags for homer2meme to align conversion behavior with meme2homer
+- Test stages 10 (--input-format), 11 (--alphabet), 12 (motif operations), 13 (MOTIF word boundary), and 14 (negative matrix warnings) added to the test suite
 
 ### Changed
 - Refactored Rust error handling to use `Result` types and `?` operator for better testability

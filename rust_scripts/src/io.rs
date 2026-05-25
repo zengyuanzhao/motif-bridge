@@ -357,14 +357,22 @@ pub fn write_homer<W: Write>(
 
 pub fn write_meme<W: Write>(writer: &mut W, motifs: &[Motif]) -> Result<(), MotifError> {
     let mut header_printed = false;
+    let mut header_alphabet = String::new();
     for motif in motifs {
         if !header_printed {
+            header_alphabet = motif.alphabet.clone();
             writeln!(writer, "MEME version 4\n")?;
             writeln!(writer, "ALPHABET= {}\n", motif.alphabet)?;
             writeln!(writer, "strands: + -\n")?;
             writeln!(writer, "Background letter frequencies")?;
             writeln!(writer, "{}\n", background_line(&motif.alphabet))?;
             header_printed = true;
+        } else if motif.alphabet != header_alphabet {
+            eprintln!(
+                "Warning: skipping motif '{}' with alphabet {} (header uses {})",
+                motif.id, motif.alphabet, header_alphabet
+            );
+            continue;
         }
 
         let expected_cols = alphabet_letters(&motif.alphabet).chars().count();

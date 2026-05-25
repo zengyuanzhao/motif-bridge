@@ -23,6 +23,8 @@
 #   10 - --input-format explicit specification
 #   11 - --alphabet support
 #   12 - Motif Operations (--rc, --trim-edges, --min-ic)
+#   13 - MEME MOTIF word-boundary parsing
+#   14 - Negative matrix value warnings
 #
 # Exit codes:
 #   0 - all tests passed
@@ -432,7 +434,7 @@ if [ -n "$RUST_BIN" ]; then
     check_diff "$WORK_DIR/py_logodds_bg.meme" "$WORK_DIR/rs_logodds_bg.meme" "Python vs Rust log-odds background"
 fi
 
-check_diff "$WORK_DIR/py_logodds_bg.meme" "$FIXTURES/expected_logodds_bg_0.2.meme" "--background log-odds conversion"
+check_diff "$WORK_DIR/py_logodds_bg.meme" "$FIXTURES/expected_logodds_bg_0p2.meme" "--background log-odds conversion"
 
 echo ""
 fi
@@ -663,6 +665,38 @@ if [ $? -eq 0 ]; then
     pass "homer2meme JSON input produces correct MEME"
 else
     fail "homer2meme JSON input produces correct MEME" "$(cat "$WORK_DIR/json_input_check.txt")"
+fi
+
+# Mixed alphabet JSON input should skip mismatched motifs
+python3 "$PYTHON/homer2meme.py" -i "$FIXTURES/test_mixed_alphabet.json" -f json > "$WORK_DIR/py_mixed_alphabet.meme" 2> "$WORK_DIR/py_mixed_alphabet.err"
+perl "$PERL/homer2meme.pl" -i "$FIXTURES/test_mixed_alphabet.json" -f json > "$WORK_DIR/pl_mixed_alphabet.meme" 2> "$WORK_DIR/pl_mixed_alphabet.err"
+check_diff "$WORK_DIR/py_mixed_alphabet.meme" "$WORK_DIR/pl_mixed_alphabet.meme" "Python vs Perl mixed-alphabet JSON"
+
+if [ -n "$RUST_BIN" ]; then
+    "$RUST_BIN/homer2meme" -i "$FIXTURES/test_mixed_alphabet.json" -f json > "$WORK_DIR/rs_mixed_alphabet.meme" 2> "$WORK_DIR/rs_mixed_alphabet.err"
+    check_diff "$WORK_DIR/py_mixed_alphabet.meme" "$WORK_DIR/rs_mixed_alphabet.meme" "Python vs Rust mixed-alphabet JSON"
+fi
+
+check_diff "$WORK_DIR/py_mixed_alphabet.meme" "$FIXTURES/expected_mixed_alphabet.meme" "Mixed-alphabet JSON skips mismatched motifs"
+
+if grep -q "Warning: skipping motif" "$WORK_DIR/py_mixed_alphabet.err"; then
+    pass "Python warns on mixed-alphabet JSON"
+else
+    fail "Python warns on mixed-alphabet JSON" "$(cat "$WORK_DIR/py_mixed_alphabet.err")"
+fi
+
+if grep -q "Warning: skipping motif" "$WORK_DIR/pl_mixed_alphabet.err"; then
+    pass "Perl warns on mixed-alphabet JSON"
+else
+    fail "Perl warns on mixed-alphabet JSON" "$(cat "$WORK_DIR/pl_mixed_alphabet.err")"
+fi
+
+if [ -n "$RUST_BIN" ]; then
+    if grep -q "Warning: skipping motif" "$WORK_DIR/rs_mixed_alphabet.err"; then
+        pass "Rust warns on mixed-alphabet JSON"
+    else
+        fail "Rust warns on mixed-alphabet JSON" "$(cat "$WORK_DIR/rs_mixed_alphabet.err")"
+    fi
 fi
 
 echo ""
@@ -904,6 +938,85 @@ check_diff "$WORK_DIR/py_h2m_rc.meme" "$WORK_DIR/pl_h2m_rc.meme" "Python vs Perl
 if [ -n "$RUST_BIN" ]; then
     "$RUST_BIN/homer2meme" -i "$FIXTURES/test.homer" --rc > "$WORK_DIR/rs_h2m_rc.meme" 2>/dev/null
     check_diff "$WORK_DIR/py_h2m_rc.meme" "$WORK_DIR/rs_h2m_rc.meme" "Python vs Rust homer2meme --rc"
+fi
+
+echo ""
+fi
+
+# ---------------------------------------------------------------------------
+# Test 13: MEME MOTIF word-boundary parsing
+# ---------------------------------------------------------------------------
+
+if run_stage 13 "MEME MOTIF word-boundary parsing"; then
+
+python3 "$PYTHON/meme2homer.py" -i "$FIXTURES/test_motif_boundary.meme" -j JASPAR2026 > "$WORK_DIR/py_boundary.homer" 2> "$WORK_DIR/py_boundary.err"
+perl "$PERL/meme2homer.pl" -i "$FIXTURES/test_motif_boundary.meme" -j JASPAR2026 > "$WORK_DIR/pl_boundary.homer" 2> "$WORK_DIR/pl_boundary.err"
+check_diff "$WORK_DIR/py_boundary.homer" "$WORK_DIR/pl_boundary.homer" "Python vs Perl MOTIF boundary"
+
+if [ -n "$RUST_BIN" ]; then
+    "$RUST_BIN/meme2homer" -i "$FIXTURES/test_motif_boundary.meme" -j JASPAR2026 > "$WORK_DIR/rs_boundary.homer" 2> "$WORK_DIR/rs_boundary.err"
+    check_diff "$WORK_DIR/py_boundary.homer" "$WORK_DIR/rs_boundary.homer" "Python vs Rust MOTIF boundary"
+fi
+
+py_count=$(grep -c '^>' "$WORK_DIR/py_boundary.homer" || true)
+if [ "$py_count" -eq 1 ]; then
+    pass "Python ignores MOTIFY line"
+else
+    fail "Python ignores MOTIFY line" "expected 1 motif, got $py_count"
+fi
+
+pl_count=$(grep -c '^>' "$WORK_DIR/pl_boundary.homer" || true)
+if [ "$pl_count" -eq 1 ]; then
+    pass "Perl ignores MOTIFY line"
+else
+    fail "Perl ignores MOTIFY line" "expected 1 motif, got $pl_count"
+fi
+
+if [ -n "$RUST_BIN" ]; then
+    rs_count=$(grep -c '^>' "$WORK_DIR/rs_boundary.homer" || true)
+    if [ "$rs_count" -eq 1 ]; then
+        pass "Rust ignores MOTIFY line"
+    else
+        fail "Rust ignores MOTIFY line" "expected 1 motif, got $rs_count"
+    fi
+fi
+
+echo ""
+fi
+
+# ---------------------------------------------------------------------------
+# Test 14: Negative matrix value warnings
+# ---------------------------------------------------------------------------
+
+if run_stage 14 "Negative matrix value warnings"; then
+
+python3 "$PYTHON/meme2homer.py" -i "$FIXTURES/test_negative.meme" -j JASPAR2026 > "$WORK_DIR/py_neg.homer" 2> "$WORK_DIR/py_neg.err"
+perl "$PERL/meme2homer.pl" -i "$FIXTURES/test_negative.meme" -j JASPAR2026 > "$WORK_DIR/pl_neg.homer" 2> "$WORK_DIR/pl_neg.err"
+check_diff "$WORK_DIR/py_neg.homer" "$WORK_DIR/pl_neg.homer" "Python vs Perl negative values"
+
+if [ -n "$RUST_BIN" ]; then
+    "$RUST_BIN/meme2homer" -i "$FIXTURES/test_negative.meme" -j JASPAR2026 > "$WORK_DIR/rs_neg.homer" 2> "$WORK_DIR/rs_neg.err"
+    check_diff "$WORK_DIR/py_neg.homer" "$WORK_DIR/rs_neg.homer" "Python vs Rust negative values"
+fi
+
+if grep -q "Warning: negative value in matrix row" "$WORK_DIR/py_neg.err"; then
+    pass "Python warns on negative values"
+else
+    fail "Python warns on negative values" "$(cat "$WORK_DIR/py_neg.err")"
+fi
+
+if grep -q "Warning: negative value in matrix row" "$WORK_DIR/pl_neg.err"; then
+    pass "Perl warns on negative values"
+else
+    fail "Perl warns on negative values" "$(cat "$WORK_DIR/pl_neg.err")"
+fi
+
+if [ -n "$RUST_BIN" ]; then
+    if grep -q "Warning: negative value in matrix row" "$WORK_DIR/rs_neg.err"; then
+        pass "Rust warns on negative values"
+    else
+        fail "Rust warns on negative values" "$(cat "$WORK_DIR/rs_neg.err")"
+    fi
 fi
 
 echo ""

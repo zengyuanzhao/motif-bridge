@@ -232,15 +232,23 @@ def write_homer(motifs: Iterable[Motif], fh: TextIO, background: float = 0.25, t
 def write_meme(motifs: Iterable[Motif], fh: TextIO) -> None:
     """Write an iterable of Motif objects to a file-like object in MEME format."""
     header_printed = False
+    header_alphabet = ""
     
     for m in motifs:
         if not header_printed:
+            header_alphabet = m.alphabet
             fh.write("MEME version 4\n\n")
             fh.write(f"ALPHABET= {m.alphabet}\n\n")
             fh.write("strands: + -\n\n")
             fh.write("Background letter frequencies\n")
             fh.write(_format_background_line(m.alphabet) + "\n\n")
             header_printed = True
+        elif m.alphabet != header_alphabet:
+            sys.stderr.write(
+                f"Warning: skipping motif '{m.id}' with alphabet {m.alphabet} "
+                f"(header uses {header_alphabet})\n"
+            )
+            continue
 
         width = len(m.matrix)
         expected_cols = len(ALPHABETS.get(m.alphabet, m.alphabet))

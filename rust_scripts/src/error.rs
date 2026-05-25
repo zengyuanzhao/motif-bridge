@@ -12,9 +12,3 @@ pub enum MotifError {
     #[error("JSON parsing error: {0}")]
     Json(#[from] serde_json::Error),
 }
-
-impl From<String> for MotifError {
-    fn from(err: String) -> Self {
-        MotifError::Parse(err)
-    }
-}

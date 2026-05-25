@@ -152,7 +152,7 @@ sub trim_edges {
 }
 
 sub process_motif {
-    my ($id, $desc, $matrix_ref, $header_ref, $config) = @_;
+    my ($id, $desc, $matrix_ref, $header_ref, $header_alphabet_ref, $config) = @_;
 
     my @mat = @$matrix_ref;
 
@@ -172,8 +172,16 @@ sub process_motif {
         return;
     }
 
-    print_meme_header($config->{alphabet}) unless $$header_ref;
-    $$header_ref = 1;
+    if ($$header_ref) {
+        if ($$header_alphabet_ref ne $config->{alphabet}) {
+            warn "Warning: skipping motif '$id' with alphabet $config->{alphabet} (header uses $$header_alphabet_ref)\n";
+            return;
+        }
+    } else {
+        print_meme_header($config->{alphabet});
+        $$header_ref = 1;
+        $$header_alphabet_ref = $config->{alphabet};
+    }
     print_meme_motif($id, $desc, \@mat, $config->{expected_cols});
 }
 
@@ -219,6 +227,7 @@ sub print_meme_motif {
 sub parse_and_convert_homer {
     my ($fh, $config) = @_;
     my $header_printed = 0;
+    my $header_alphabet = '';
     my $in_motif = 0;
     my $motif_id = '';
     my $description = '';
@@ -236,7 +245,7 @@ sub parse_and_convert_homer {
             my $rest = $1;
 
             if ($in_motif && @matrix) {
-                process_motif($motif_id, $description, \@matrix, \$header_printed, $config);
+                process_motif($motif_id, $description, \@matrix, \$header_printed, \$header_alphabet, $config);
             }
             @matrix = ();
 
@@ -281,7 +290,7 @@ sub parse_and_convert_homer {
     }
 
     if ($in_motif && @matrix) {
-        process_motif($motif_id, $description, \@matrix, \$header_printed, $config);
+        process_motif($motif_id, $description, \@matrix, \$header_printed, \$header_alphabet, $config);
     }
 }
 
@@ -299,6 +308,7 @@ sub parse_and_convert_json {
     }
 
     my $header_printed = 0;
+    my $header_alphabet = '';
     my @motifs;
     my $extract = $config->{extract};
     my $pseudocount = $config->{pseudocount};
@@ -348,7 +358,14 @@ sub parse_and_convert_json {
             my %local_config = %$config;
             $local_config{alphabet} = $m->{alphabet};
             $local_config{expected_cols} = $m->{expected_cols};
-            process_motif($m->{id}, $m->{desc}, $m->{matrix}, \$header_printed, \%local_config);
+            process_motif(
+                $m->{id},
+                $m->{desc},
+                $m->{matrix},
+                \$header_printed,
+                \$header_alphabet,
+                \%local_config
+            );
         }
     }
 }

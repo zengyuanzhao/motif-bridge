@@ -31,6 +31,10 @@ This installs the precompiled Rust binaries (`meme2homer` and `homer2meme`) dire
 ### Cargo (Rust)
 
 ```bash
+# v0.2.0 (from source, recommended)
+cargo install --git https://github.com/zengyuanzhao/motif-bridge
+
+# v0.1.0 (published)
 cargo install motif-bridge
 ```
 
@@ -160,8 +164,10 @@ cd rust_scripts && cargo build --release && cd ..
 | `-i <file>` | Input HOMER motif file (`-` for stdin, `.gz` supported, `.json` supported) | *(required)* |
 | `-e <string>` | Extract only the specified motif by ID or description | *(all motifs)* |
 | `-a <float>` | Pseudocount for log-odds to probability conversion | `0.01` |
+| `-b <float>` | Background probability for log-odds conversion | `0.25` |
 | `-f, --format <fmt>` | Input format: `homer` or `json` | `homer` |
 | `--input-format <fmt>` | Matrix type: `auto`, `logodds`, or `probability` | `auto` |
+| `--alphabet <string>` | Alphabet (`ACGT`, `ACGU`, or `PROTEIN`) | `ACGT` |
 | `--rc` | Output the reverse complement of the motif (DNA/RNA only) | *(off)* |
 | `--trim-edges <float>` | Trim edges with Information Content below threshold | `0.0` |
 | `--min-ic <float>` | Filter out motifs with total Information Content below threshold | `0.0` |
@@ -343,13 +349,15 @@ Run `bash test_motif_bridge.sh` locally. The test suite covers:
 | 10. Explicit input format | Test `--input-format` flag (auto/logodds/probability) |
 | 11. Alphabet support | Test `--alphabet` flag for RNA/Protein motifs |
 | 12. Motif operations | Test `--rc`, `--trim-edges`, and `--min-ic` flags |
+| 13. MOTIF word boundary | Ensure `MOTIF` lines require a word boundary (`MOTIFY` ignored) |
+| 14. Negative matrix warnings | Ensure negative MEME values trigger warnings |
 
 ### Latest test result
 
 | Metric | Value |
 |---|---|
-| Total checks | 59 |
-| Passed | **59** ✅ |
+| Total checks | 75 |
+| Passed | **75** ✅ |
 | Failed | 0 |
 | Skipped | 0 |
 
