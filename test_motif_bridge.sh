@@ -520,7 +520,7 @@ python3 "$PYTHON/meme2homer.py" -i "$FIXTURES/test.meme" -j JASPAR2026 -f json >
 perl "$PERL/meme2homer.pl" -i "$FIXTURES/test.meme" -j JASPAR2026 -f json > "$WORK_DIR/pl_json.json" 2>&1
 check_diff "$WORK_DIR/py_json.json" "$WORK_DIR/pl_json.json" "Python vs Perl JSON output"
 
-# Unicode descriptions should be escaped consistently
+# Unicode descriptions should be preserved consistently
 python3 "$PYTHON/meme2homer.py" -i "$FIXTURES/test_unicode_desc.meme" -j JASPAR2026 -f json > "$WORK_DIR/py_unicode.json" 2>&1
 perl "$PERL/meme2homer.pl" -i "$FIXTURES/test_unicode_desc.meme" -j JASPAR2026 -f json > "$WORK_DIR/pl_unicode.json" 2>&1
 check_diff "$WORK_DIR/py_unicode.json" "$WORK_DIR/pl_unicode.json" "Python vs Perl JSON unicode"
@@ -530,10 +530,21 @@ if [ -n "$RUST_BIN" ]; then
     check_diff "$WORK_DIR/py_unicode.json" "$WORK_DIR/rs_unicode.json" "Python vs Rust JSON unicode"
 fi
 
-if grep -qi "\\\\u03b1" "$WORK_DIR/py_unicode.json"; then
-    pass "Unicode descriptions escaped"
+python3 -c "
+import json, sys
+with open('$WORK_DIR/py_unicode.json', encoding='utf-8') as f:
+    data = json.load(f)
+desc = data.get('motifs', [{}])[0].get('description', '')
+if desc != 'alpha_α/JASPAR2026':
+    print(f'Unexpected description: {desc}')
+    sys.exit(1)
+print('OK')
+sys.exit(0)
+" > "$WORK_DIR/unicode_check.txt" 2>&1
+if [ $? -eq 0 ]; then
+    pass "Unicode descriptions preserved"
 else
-    fail "Unicode descriptions escaped" "$(cat "$WORK_DIR/py_unicode.json")"
+    fail "Unicode descriptions preserved" "$(cat "$WORK_DIR/unicode_check.txt")"
 fi
 
 # Validate JSON structure
@@ -799,6 +810,32 @@ sys.exit(0)
     else
         fail "Python vs Rust JSON --alphabet ACGU" "$(cat "$WORK_DIR/json_alphabet_diff_rs.txt")"
     fi
+fi
+
+# meme2homer should auto-detect ALPHABET from MEME header when --alphabet is omitted
+python3 "$PYTHON/meme2homer.py" -i "$FIXTURES/test_rna.meme" -f json > "$WORK_DIR/py_rna_auto.json" 2>&1
+perl "$PERL/meme2homer.pl" -i "$FIXTURES/test_rna.meme" -f json > "$WORK_DIR/pl_rna_auto.json" 2>&1
+check_diff "$WORK_DIR/py_rna_auto.json" "$WORK_DIR/pl_rna_auto.json" "Python vs Perl auto-detect ALPHABET"
+
+if [ -n "$RUST_BIN" ]; then
+    "$RUST_BIN/meme2homer" -i "$FIXTURES/test_rna.meme" -f json > "$WORK_DIR/rs_rna_auto.json" 2>&1
+    check_diff "$WORK_DIR/py_rna_auto.json" "$WORK_DIR/rs_rna_auto.json" "Python vs Rust auto-detect ALPHABET"
+fi
+
+python3 -c "
+import json, sys
+with open('$WORK_DIR/py_rna_auto.json') as f:
+    py = json.load(f)
+if py['motifs'][0].get('alphabet') != 'ACGU':
+    print('Alphabet auto-detect missing or incorrect')
+    sys.exit(1)
+print('OK')
+sys.exit(0)
+" > "$WORK_DIR/json_alphabet_auto.txt" 2>&1
+if [ $? -eq 0 ]; then
+    pass "meme2homer auto-detects ALPHABET"
+else
+    fail "meme2homer auto-detects ALPHABET" "$(cat "$WORK_DIR/json_alphabet_auto.txt")"
 fi
 
 # homer2meme should respect --alphabet for MEME header

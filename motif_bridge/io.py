@@ -1,7 +1,6 @@
 import json
 import sys
-import math
-from typing import List, Iterator, Iterable, TextIO
+from typing import List, Iterator, Iterable, TextIO, Optional
 
 from .core import Motif
 
@@ -24,7 +23,7 @@ def _format_background_line(alphabet: str) -> str:
     return " ".join(parts)
 
 def _json_string(value: str) -> str:
-    return json.dumps(value, ensure_ascii=True)
+    return json.dumps(value, ensure_ascii=False)
 
 def logodds_to_prob(
     row: List[float], pseudocount: float = 0.01, background: float = 0.25
@@ -43,18 +42,27 @@ def is_logodds_row(row: List[float], input_format: str) -> bool:
     s = sum(row)
     return not (0.98 <= s <= 1.02)
 
-def read_meme(fh: TextIO, alphabet: str = "ACGT") -> Iterator[Motif]:
+def read_meme(fh: TextIO, alphabet_override: Optional[str] = None) -> Iterator[Motif]:
     """Parse MEME format from a file-like object and yield Motif instances."""
     in_motif = False
     in_matrix = False
     motif_id = ""
     description = ""
     matrix: List[List[float]] = []
+    alphabet = alphabet_override or "ACGT"
     expected_cols = len(_alphabet_letters(alphabet))
 
     for raw_line in fh:
         line = raw_line.rstrip("\n")
         stripped = line.strip()
+
+        if stripped.startswith("ALPHABET="):
+            if alphabet_override is None:
+                detected = stripped.split("=", 1)[1].strip().split()[0]
+                if detected:
+                    alphabet = detected
+                    expected_cols = len(_alphabet_letters(alphabet))
+            continue
 
         if stripped.startswith("MOTIF"):
             if len(stripped) > 5 and not stripped[5].isspace():
@@ -213,19 +221,10 @@ def read_json(
         if processed_matrix:
             yield Motif(mid, desc, processed_matrix, alphabet)
 
-def _calculate_homer_score(matrix: List[List[float]], background: float, threshold_offset: float) -> float:
-    score = 0.0
-    for row in matrix:
-        max_p = max(row) if row else 0.0
-        if max_p > 0:
-            score += math.log2(max_p / background)
-    score -= threshold_offset
-    return max(score, 0.0)
-
 def write_homer(motifs: Iterable[Motif], fh: TextIO, background: float = 0.25, threshold_offset: float = 4.0) -> None:
     """Write an iterable of Motif objects to a file-like object in HOMER format."""
     for m in motifs:
-        score = _calculate_homer_score(m.matrix, background, threshold_offset)
+        score = m.calculate_score(background, threshold_offset)
         fh.write(f">{m.id}\t{m.description}\t{score:.6f}\t0\t0\t0\n")
         for row in m.matrix:
             fh.write("\t".join(f"{v:.6f}" for v in row) + "\n")

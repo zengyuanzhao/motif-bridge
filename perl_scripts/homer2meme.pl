@@ -64,6 +64,9 @@ if ($input eq '-') {
 } else {
     open $fh, '<', $input or die "Cannot open $input: $!";
 }
+binmode($fh, ':encoding(UTF-8)');
+binmode(STDOUT, ':encoding(UTF-8)');
+binmode(STDERR, ':encoding(UTF-8)');
 
 if ($input_fmt eq 'json') {
     parse_and_convert_json($fh, \%config);
@@ -99,8 +102,8 @@ sub logodds_to_prob {
 }
 
 sub calculate_ic {
-    my ($matrix_ref) = @_;
-    my $max_ic = 2.0;
+    my ($matrix_ref, $alphabet) = @_;
+    my $max_ic = ($alphabet && $alphabet eq 'PROTEIN') ? log(20) / log(2) : 2.0;
     my @ic_list;
     foreach my $row (@$matrix_ref) {
         my $h = 0;
@@ -115,8 +118,8 @@ sub calculate_ic {
 }
 
 sub total_ic {
-    my ($matrix_ref) = @_;
-    my @ic = calculate_ic($matrix_ref);
+    my ($matrix_ref, $alphabet) = @_;
+    my @ic = calculate_ic($matrix_ref, $alphabet);
     my $sum = 0;
     $sum += $_ for @ic;
     return $sum;
@@ -134,8 +137,8 @@ sub reverse_complement {
 }
 
 sub trim_edges {
-    my ($matrix_ref, $threshold) = @_;
-    my @ic = calculate_ic($matrix_ref);
+    my ($matrix_ref, $threshold, $alphabet) = @_;
+    my @ic = calculate_ic($matrix_ref, $alphabet);
     my $start = 0;
     while ($start < scalar(@ic) && $ic[$start] < $threshold) {
         $start++;
@@ -161,14 +164,14 @@ sub process_homer_motif {
     }
 
     if ($config->{trim_edges} > 0) {
-        @mat = trim_edges(\@mat, $config->{trim_edges});
+        @mat = trim_edges(\@mat, $config->{trim_edges}, $config->{alphabet});
         if (!@mat) {
             warn "Warning: motif '$id' trimmed to empty matrix (IC threshold=$config->{trim_edges})\n";
             return;
         }
     }
 
-    if ($config->{min_ic} > 0 && total_ic(\@mat) < $config->{min_ic}) {
+    if ($config->{min_ic} > 0 && total_ic(\@mat, $config->{alphabet}) < $config->{min_ic}) {
         return;
     }
 

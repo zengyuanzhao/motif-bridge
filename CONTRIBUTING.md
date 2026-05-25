@@ -13,7 +13,7 @@ Thank you for your interest in contributing! This project provides identical fun
 ```bash
 bash test_motif_bridge.sh
 ```
-This runs 81 regression checks covering cross-language consistency, stdin/gzip support, round-trip conversion, JSON I/O, and format compliance.
+This runs 84 regression checks covering cross-language consistency, stdin/gzip support, round-trip conversion, JSON I/O, and format compliance.
 
 To run specific test stages:
 ```bash

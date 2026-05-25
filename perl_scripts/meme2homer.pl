@@ -11,7 +11,7 @@ my $extract     = '';
 my $bg          = 0.25;
 my $t_offset    = 4;
 my $output_fmt  = 'homer';
-my $alphabet    = 'ACGT';
+my $alphabet    = '';
 my $do_rc       = 0;
 my $trim_edges  = 0;
 my $min_ic      = 0;
@@ -34,7 +34,10 @@ GetOptions(
 
 usage() unless $input;
 die "Error: -b must be in (0, 1].\n" unless $bg > 0 && $bg <= 1;
-die "Error: unknown alphabet: $alphabet\n" unless $alphabet =~ /^(ACGT|ACGU|PROTEIN)$/;
+my $alphabet_override = ($alphabet ne '');
+if ($alphabet_override) {
+    die "Error: unknown alphabet: $alphabet\n" unless $alphabet =~ /^(ACGT|ACGU|PROTEIN)$/;
+}
 
 my %ALPHABETS = (
     'ACGT' => 'ACGT',
@@ -48,11 +51,11 @@ my %config = (
     bg => $bg,
     t_offset => $t_offset,
     output_fmt => $output_fmt,
-    alphabet => $alphabet,
+    alphabet => $alphabet_override ? $alphabet : 'ACGT',
     do_rc => $do_rc,
     trim_edges => $trim_edges,
     min_ic => $min_ic,
-    expected_cols => length($ALPHABETS{$alphabet} || $alphabet),
+    expected_cols => length($ALPHABETS{$alphabet_override ? $alphabet : 'ACGT'} || ($alphabet_override ? $alphabet : 'ACGT')),
 );
 
 die "Error: unknown format: $output_fmt\n" unless $output_fmt eq 'homer' || $output_fmt eq 'json';
@@ -67,6 +70,7 @@ if ($input eq '-') {
     open $fh, '<', $input or die "Cannot open $input: $!";
 }
 binmode($fh, ':encoding(UTF-8)');
+binmode(STDOUT, ':encoding(UTF-8)');
 
 my $in_motif  = 0;
 my $in_matrix = 0;
@@ -77,6 +81,15 @@ my @motifs;
 
 while (<$fh>) {
     chomp;
+
+    if (/^ALPHABET=\s*(\S+)/) {
+        if (!$alphabet_override) {
+            my $detected = $1;
+            $config{alphabet} = $detected;
+            $config{expected_cols} = length($ALPHABETS{$detected} || $detected);
+        }
+        next;
+    }
 
     if (/^MOTIF\s+(\S+)(?:\s+(.*))?/) {
         if ($in_motif && @matrix) {
@@ -288,7 +301,7 @@ sub print_motif {
 sub print_json {
     my ($motifs_ref) = @_;
     require JSON::PP;
-    my $encoder = JSON::PP->new->allow_nonref->ascii(1);
+    my $encoder = JSON::PP->new->allow_nonref->ascii(0);
     print "{\n";
     print "  \"version\": \"1.0\",\n";
     print "  \"source\": \"meme\",\n";
@@ -334,7 +347,7 @@ Options:
     -b <float>   Background probability (default: 0.25, uniform)
     -t <float>   Threshold offset in log2 bits (default: 4)
     -f, --format <fmt>  Output format: homer (default) or json
-    --alphabet <str> Alphabet: ACGT (DNA, default), ACGU (RNA), or PROTEIN
+    --alphabet <str> Alphabet override: ACGT (DNA), ACGU (RNA), or PROTEIN
     --rc                Output the reverse complement of the motif (DNA/RNA only)
     --trim-edges <float> Trim edges with information content below threshold
     --min-ic <float>    Filter out motifs with total information content below threshold

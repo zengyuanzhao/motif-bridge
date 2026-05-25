@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.2.0] - 2026-05-21
 
 ### Added
-- CLI regression test suite (`test_motif_bridge.sh`) with 81 checks across Python, Perl, and Rust implementations
+- CLI regression test suite (`test_motif_bridge.sh`) with 84 checks across Python, Perl, and Rust implementations
 - Fixture files for testing (`fixtures/`)
 - GitHub Actions CI workflow (`.github/workflows/ci.yml`)
 - `.gitignore` for Rust, Python, and OS artifacts

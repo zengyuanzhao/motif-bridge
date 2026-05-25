@@ -48,7 +48,7 @@ cargo build --release
 #           target/release/homer2meme
 ```
 
-For the Perl and Python implementations, no installation is needed. The scripts can be run directly.
+The Perl scripts can be run directly. The Python scripts require either `pip install -e .` or setting `PYTHONPATH` to the repository root.
 
 **Requirements:** Python 3.8+, Perl 5 with `IO::Uncompress::Gunzip`, or Rust 1.70+.
 
@@ -151,7 +151,7 @@ cd rust_scripts && cargo build --release && cd ..
 | `-b <float>` | Background nucleotide probability | `0.25` |
 | `-t <float>` | Threshold offset subtracted from log-odds score (log2 bits) | `4.0` |
 | `-f, --format <fmt>` | Output format: `homer` or `json` | `homer` |
-| `--alphabet <string>` | Alphabet (`ACGT`, `ACGU`, or `PROTEIN`) | `ACGT` |
+| `--alphabet <string>` | Alphabet override (`ACGT`, `ACGU`, or `PROTEIN`) | *(auto from MEME header)* |
 | `--rc` | Output the reverse complement of the motif (DNA/RNA only) | *(off)* |
 | `--trim-edges <float>` | Trim edges with Information Content below threshold | `0.0` |
 | `--min-ic <float>` | Filter out motifs with total Information Content below threshold | `0.0` |
@@ -254,7 +254,7 @@ from motif_bridge import read_meme, write_homer, Motif
 
 # Read motifs from a MEME file (yields a generator to save memory)
 with open("motifs.meme", "r") as f:
-    motifs = list(read_meme(f, alphabet="ACGT"))
+    motifs = list(read_meme(f))
 
 for motif in motifs:
     # Filter by Information Content
@@ -287,7 +287,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let reader = BufReader::new(file);
     
     // Read motifs from a MEME file
-    let mut motifs = read_meme(reader, "ACGT")?;
+    let mut motifs = read_meme(reader, None)?;
     
     for motif in motifs.iter_mut() {
         if motif.total_ic() > 5.0 {
@@ -356,8 +356,8 @@ Run `bash test_motif_bridge.sh` locally. The test suite covers:
 
 | Metric | Value |
 |---|---|
-| Total checks | 81 |
-| Passed | **81** ✅ |
+| Total checks | 84 |
+| Passed | **84** ✅ |
 | Failed | 0 |
 | Skipped | 0 |
 

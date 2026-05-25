@@ -55,37 +55,13 @@ pub fn logodds_to_prob(row: &[f64], pseudocount: f64, background: f64) -> Vec<f6
 }
 
 fn json_string(value: &str) -> String {
-    let mut out = String::with_capacity(value.len() + 2);
-    out.push('"');
-    for ch in value.chars() {
-        match ch {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            '\u{08}' => out.push_str("\\b"),
-            '\u{0C}' => out.push_str("\\f"),
-            c if c <= '\u{1F}' => out.push_str(&format!("\\u{:04x}", c as u32)),
-            c if c <= '\u{7F}' => out.push(c),
-            c => {
-                let code = c as u32;
-                if code <= 0xFFFF {
-                    out.push_str(&format!("\\u{:04x}", code));
-                } else {
-                    let n = code - 0x1_0000;
-                    let high = 0xD800 + ((n >> 10) & 0x3FF);
-                    let low = 0xDC00 + (n & 0x3FF);
-                    out.push_str(&format!("\\u{:04x}\\u{:04x}", high, low));
-                }
-            }
-        }
-    }
-    out.push('"');
-    out
+    serde_json::to_string(value).unwrap_or_else(|_| format!("{:?}", value))
 }
 
-pub fn read_meme<R: BufRead>(reader: R, alphabet_arg: &str) -> Result<Vec<Motif>, MotifError> {
+pub fn read_meme<R: BufRead>(
+    reader: R,
+    alphabet_override: Option<&str>,
+) -> Result<Vec<Motif>, MotifError> {
     let mut in_motif = false;
     let mut in_matrix = false;
     let mut motif_id = String::new();
@@ -93,11 +69,24 @@ pub fn read_meme<R: BufRead>(reader: R, alphabet_arg: &str) -> Result<Vec<Motif>
     let mut matrix: Vec<Vec<f64>> = Vec::new();
     let mut motifs = Vec::new();
 
-    let mut expected_cols = alphabet_letters(alphabet_arg).chars().count();
+    let override_set = alphabet_override.is_some();
+    let mut alphabet = alphabet_override.unwrap_or("ACGT").to_string();
+    let mut expected_cols = alphabet_letters(&alphabet).chars().count();
 
     for line_result in reader.lines() {
         let line = line_result?;
         let trimmed = line.trim();
+
+        if let Some(rest) = trimmed.strip_prefix("ALPHABET=") {
+            if !override_set {
+                let detected = rest.split_whitespace().next().unwrap_or("");
+                if !detected.is_empty() {
+                    alphabet = detected.to_string();
+                    expected_cols = alphabet_letters(&alphabet).chars().count();
+                }
+            }
+            continue;
+        }
 
         if let Some(rest) = trimmed.strip_prefix("MOTIF") {
             if !rest.is_empty()
@@ -115,7 +104,7 @@ pub fn read_meme<R: BufRead>(reader: R, alphabet_arg: &str) -> Result<Vec<Motif>
                     motif_id.clone(),
                     description.clone(),
                     std::mem::take(&mut matrix),
-                    alphabet_arg.to_string(),
+                    alphabet.clone(),
                 ));
             }
             in_matrix = false;
@@ -155,7 +144,7 @@ pub fn read_meme<R: BufRead>(reader: R, alphabet_arg: &str) -> Result<Vec<Motif>
                     motif_id.clone(),
                     description.clone(),
                     std::mem::take(&mut matrix),
-                    alphabet_arg.to_string(),
+                    alphabet.clone(),
                 ));
             }
             in_motif = false;
@@ -196,18 +185,20 @@ pub fn read_meme<R: BufRead>(reader: R, alphabet_arg: &str) -> Result<Vec<Motif>
                         );
                     }
                     matrix.push(values);
+                } else if !values.is_empty() {
+                    eprintln!(
+                        "Warning: skipping malformed matrix row (expected {} cols, got {}): {}",
+                        expected_cols,
+                        values.len(),
+                        trimmed
+                    );
                 }
             }
         }
     }
 
     if in_motif && !matrix.is_empty() {
-        motifs.push(Motif::new(
-            motif_id,
-            description,
-            matrix,
-            alphabet_arg.to_string(),
-        ));
+        motifs.push(Motif::new(motif_id, description, matrix, alphabet));
     }
 
     Ok(motifs)

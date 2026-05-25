@@ -47,9 +47,9 @@ struct Args {
     /// Output format: homer (default) or json
     #[arg(short = 'f', long = "format", value_enum, default_value_t = OutputFormat::Homer)]
     output_format: OutputFormat,
-    /// Alphabet: ACGT (DNA, default), ACGU (RNA), or PROTEIN
-    #[arg(long = "alphabet", value_enum, default_value_t = Alphabet::Acgt)]
-    alphabet: Alphabet,
+    /// Alphabet override for MEME input: ACGT, ACGU, or PROTEIN
+    #[arg(long = "alphabet", value_enum)]
+    alphabet: Option<Alphabet>,
     /// Output the reverse complement of the motif (DNA/RNA only)
     #[arg(long = "rc", action = ArgAction::SetTrue)]
     rc: bool,
@@ -122,7 +122,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         Box::new(BufReader::new(file))
     };
 
-    let raw_motifs = read_meme(reader, args.alphabet.as_str())?;
+    let raw_motifs = read_meme(reader, args.alphabet.map(|a| a.as_str()))?;
     let mut processed_motifs = Vec::new();
 
     for mut m in raw_motifs {

@@ -84,7 +84,7 @@ def parse_args() -> argparse.Namespace:
         "--alphabet",
         choices=["ACGT", "ACGU", "PROTEIN"],
         default=None,
-        help="Alphabet: ACGT (DNA, default), ACGU (RNA), or PROTEIN",
+        help="Alphabet override for MEME input: ACGT, ACGU, or PROTEIN",
     )
     parser.add_argument(
         "--rc",
@@ -144,7 +144,7 @@ def main() -> None:
     fh = None
     try:
         fh = open_input(args.i)
-        raw_motifs = read_meme(fh, alphabet=args.alphabet or "ACGT")
+        raw_motifs = read_meme(fh, alphabet_override=args.alphabet)
         processed_motifs = process_motifs(raw_motifs, args)
 
         if args.format == "json":
