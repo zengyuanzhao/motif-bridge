@@ -80,7 +80,9 @@ def read_meme(fh: TextIO, alphabet_override: Optional[str] = None) -> Iterator[M
             parts = stripped.split()
             mid = parts[1] if len(parts) > 1 else ""
             if not mid:
-                sys.stderr.write(f"Warning: skipping malformed MOTIF line without ID: {stripped}\n")
+                sys.stderr.write(
+                    f"Warning: skipping malformed MOTIF line without ID: {stripped}\n"
+                )
                 in_motif = False
                 in_matrix = False
                 matrix = []
@@ -117,8 +119,14 @@ def read_meme(fh: TextIO, alphabet_override: Optional[str] = None) -> Iterator[M
                     pass
             continue
 
-        if in_matrix and stripped and (
-            stripped[0].isdigit() or stripped.startswith(".") or stripped.startswith("-")
+        if (
+            in_matrix
+            and stripped
+            and (
+                stripped[0].isdigit()
+                or stripped.startswith(".")
+                or stripped.startswith("-")
+            )
         ):
             tokens = stripped.split()
             try:
