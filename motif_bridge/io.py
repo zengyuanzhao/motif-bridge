@@ -1,6 +1,6 @@
 import json
 import sys
-from typing import List, Iterator, Iterable, TextIO, Optional
+from typing import Iterable, Iterator, List, Optional, TextIO
 
 from .core import Motif
 
@@ -10,8 +10,10 @@ ALPHABETS = {
     "PROTEIN": "ACDEFGHIKLMNPQRSTVWY",
 }
 
+
 def _alphabet_letters(alphabet: str) -> str:
     return ALPHABETS.get(alphabet, alphabet)
+
 
 def _format_background_line(alphabet: str) -> str:
     letters = _alphabet_letters(alphabet)
@@ -22,8 +24,10 @@ def _format_background_line(alphabet: str) -> str:
     parts = [f"{letter} {fmt.format(freq)}" for letter in letters]
     return " ".join(parts)
 
+
 def _json_string(value: str) -> str:
     return json.dumps(value, ensure_ascii=False)
+
 
 def logodds_to_prob(
     row: List[float], pseudocount: float = 0.01, background: float = 0.25
@@ -33,6 +37,7 @@ def logodds_to_prob(
     total = sum(raw) + pseudocount * len(raw)
     return [(v + pseudocount) / total for v in raw]
 
+
 def is_logodds_row(row: List[float], input_format: str) -> bool:
     """Determine if row is log-odds based on input_format setting."""
     if input_format == "logodds":
@@ -41,6 +46,7 @@ def is_logodds_row(row: List[float], input_format: str) -> bool:
         return False
     s = sum(row)
     return not (0.98 <= s <= 1.02)
+
 
 def read_meme(fh: TextIO, alphabet_override: Optional[str] = None) -> Iterator[Motif]:
     """Parse MEME format from a file-like object and yield Motif instances."""
@@ -120,12 +126,13 @@ def read_meme(fh: TextIO, alphabet_override: Optional[str] = None) -> Iterator[M
                 if len(row) == expected_cols:
                     if any(v < 0 for v in row):
                         sys.stderr.write(
-                            f"Warning: negative value in matrix row (expected probabilities): {stripped}\n"
+                            "Warning: negative value in matrix row "
+                            f"(expected probabilities): {stripped}\n"
                         )
                     matrix.append(row)
                 elif row:
                     sys.stderr.write(
-                        f"Warning: skipping malformed matrix row "
+                        "Warning: skipping malformed matrix row "
                         f"(expected {expected_cols} cols, got {len(row)}): {stripped}\n"
                     )
             except ValueError:
@@ -133,6 +140,7 @@ def read_meme(fh: TextIO, alphabet_override: Optional[str] = None) -> Iterator[M
 
     if in_motif and matrix:
         yield Motif(motif_id, description, matrix, alphabet)
+
 
 def read_homer(
     fh: TextIO,
@@ -180,7 +188,8 @@ def read_homer(
                 continue
             if len(row) != expected_cols:
                 sys.stderr.write(
-                    f"Warning: skipping malformed row (expected {expected_cols} cols, got {len(row)}): {stripped}\n"
+                    "Warning: skipping malformed row "
+                    f"(expected {expected_cols} cols, got {len(row)}): {stripped}\n"
                 )
                 continue
             if is_logodds_row(row, input_format):
@@ -192,8 +201,12 @@ def read_homer(
     if in_motif and matrix:
         yield Motif(motif_id, description, matrix, alphabet)
 
+
 def read_json(
-    fh: TextIO, pseudocount: float = 0.01, input_format: str = "auto", background: float = 0.25
+    fh: TextIO,
+    pseudocount: float = 0.01,
+    input_format: str = "auto",
+    background: float = 0.25,
 ) -> Iterator[Motif]:
     """Parse JSON format from a file-like object and yield Motif instances."""
     data = json.load(fh)
@@ -211,7 +224,8 @@ def read_json(
         for row in matrix:
             if len(row) != expected_cols:
                 sys.stderr.write(
-                    f"Warning: skipping malformed matrix row (expected {expected_cols} cols, got {len(row)})\n"
+                    "Warning: skipping malformed matrix row "
+                    f"(expected {expected_cols} cols, got {len(row)})\n"
                 )
                 continue
             if is_logodds_row(row, input_format):
@@ -221,7 +235,13 @@ def read_json(
         if processed_matrix:
             yield Motif(mid, desc, processed_matrix, alphabet)
 
-def write_homer(motifs: Iterable[Motif], fh: TextIO, background: float = 0.25, threshold_offset: float = 4.0) -> None:
+
+def write_homer(
+    motifs: Iterable[Motif],
+    fh: TextIO,
+    background: float = 0.25,
+    threshold_offset: float = 4.0,
+) -> None:
     """Write an iterable of Motif objects to a file-like object in HOMER format."""
     for m in motifs:
         score = m.calculate_score(background, threshold_offset)
@@ -229,11 +249,12 @@ def write_homer(motifs: Iterable[Motif], fh: TextIO, background: float = 0.25, t
         for row in m.matrix:
             fh.write("\t".join(f"{v:.6f}" for v in row) + "\n")
 
+
 def write_meme(motifs: Iterable[Motif], fh: TextIO) -> None:
     """Write an iterable of Motif objects to a file-like object in MEME format."""
     header_printed = False
     header_alphabet = ""
-    
+
     for m in motifs:
         if not header_printed:
             header_alphabet = m.alphabet
@@ -254,10 +275,14 @@ def write_meme(motifs: Iterable[Motif], fh: TextIO) -> None:
         width = len(m.matrix)
         expected_cols = len(_alphabet_letters(m.alphabet))
         fh.write(f"MOTIF {m.id} {m.description}\n\n")
-        fh.write(f"letter-probability matrix: alength= {expected_cols} w= {width} nsites= 20 E= 0\n")
+        fh.write(
+            f"letter-probability matrix: alength= {expected_cols} "
+            f"w= {width} nsites= 20 E= 0\n"
+        )
         for row in m.matrix:
             fh.write("  " + "  ".join(f"{v:.6f}" for v in row) + "\n")
         fh.write("\n")
+
 
 def write_json(motifs: Iterable[Motif], fh: TextIO) -> None:
     """Write an iterable of Motif objects to a file-like object in JSON format."""
