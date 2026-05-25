@@ -42,8 +42,6 @@ my %ALPHABETS = (
     'ACGU' => 'ACGU',
     'PROTEIN' => 'ACDEFGHIKLMNPQRSTVWY'
 );
-my $expected_cols = length($ALPHABETS{$alphabet} || $alphabet);
-
 my %config = (
     extract => $extract,
     pseudocount => $pseudocount,
@@ -54,7 +52,7 @@ my %config = (
     trim_edges => $trim_edges,
     min_ic => $min_ic,
     alphabet => $alphabet,
-    expected_cols => $expected_cols,
+    expected_cols => length($ALPHABETS{$alphabet} || $alphabet),
 );
 
 my $fh;
@@ -270,8 +268,8 @@ sub parse_and_convert_homer {
         next unless $all_numeric && @tokens;
 
         my @row = map { $_ + 0 } @tokens;
-        if (scalar(@row) != $expected_cols) {
-            warn "Warning: skipping malformed matrix row (expected $expected_cols cols, got "
+        if (scalar(@row) != $config->{expected_cols}) {
+            warn "Warning: skipping malformed matrix row (expected $config->{expected_cols} cols, got "
                  . scalar(@row) . "): $_\n";
             next;
         }
@@ -303,7 +301,6 @@ sub parse_and_convert_json {
     my $header_printed = 0;
     my @motifs;
     my $extract = $config->{extract};
-    my $expected_cols = $config->{expected_cols};
     my $pseudocount = $config->{pseudocount};
     my $background = $config->{background};
     my $matrix_type = $config->{matrix_type};
@@ -312,21 +309,13 @@ sub parse_and_convert_json {
         for my $m (@{$data->{motifs}}) {
             my $id = $m->{id} || 'motif';
             my $desc = $m->{description} || $id;
-            my $motif_alphabet = $m->{alphabet} || $config->{alphabet};
-            if ($header_printed && $motif_alphabet ne $config->{alphabet}) {
-                warn "Warning: skipping motif '$id' with alphabet $motif_alphabet (header uses $config->{alphabet})\n";
-                next;
-            }
-            if (!$header_printed && $motif_alphabet ne $config->{alphabet}) {
-                $config->{alphabet} = $motif_alphabet;
-                $config->{expected_cols} = length($ALPHABETS{$motif_alphabet} || $motif_alphabet);
-            }
+            my $motif_alphabet = $m->{alphabet} || 'ACGT';
+            my $expected_cols = length($ALPHABETS{$motif_alphabet} || $motif_alphabet);
 
             if ($extract && $id ne $extract && $desc ne $extract) {
                 next;
             }
 
-            my $expected_cols = $config->{expected_cols};
             my @matrix;
             if (ref $m->{matrix} eq 'ARRAY') {
                 for my $row (@{$m->{matrix}}) {
@@ -343,14 +332,23 @@ sub parse_and_convert_json {
             }
 
             if (@matrix) {
-                push @motifs, { id => $id, desc => $desc, matrix => \@matrix };
+                push @motifs, {
+                    id => $id,
+                    desc => $desc,
+                    matrix => \@matrix,
+                    alphabet => $motif_alphabet,
+                    expected_cols => $expected_cols,
+                };
             }
         }
     }
 
     if (@motifs) {
         for my $m (@motifs) {
-            process_motif($m->{id}, $m->{desc}, $m->{matrix}, \$header_printed, $config);
+            my %local_config = %$config;
+            $local_config{alphabet} = $m->{alphabet};
+            $local_config{expected_cols} = $m->{expected_cols};
+            process_motif($m->{id}, $m->{desc}, $m->{matrix}, \$header_printed, \%local_config);
         }
     }
 }

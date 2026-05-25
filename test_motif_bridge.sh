@@ -432,52 +432,7 @@ if [ -n "$RUST_BIN" ]; then
     check_diff "$WORK_DIR/py_logodds_bg.meme" "$WORK_DIR/rs_logodds_bg.meme" "Python vs Rust log-odds background"
 fi
 
-python3 -c "
-import math, sys
-def first_logodds_row(path):
-    with open(path) as f:
-        for line in f:
-            s = line.strip()
-            if s.startswith('>') or not s:
-                continue
-            if s[0].isdigit() or s.startswith('-') or s.startswith('.'):
-                return [float(x) for x in s.split()]
-    return None
-
-def first_meme_row(path):
-    with open(path) as f:
-        in_matrix = False
-        for line in f:
-            s = line.strip()
-            if s.startswith('letter-probability'):
-                in_matrix = True
-                continue
-            if in_matrix and s and (s[0].isdigit() or s.startswith('.')):
-                return [float(x) for x in s.split()]
-    return None
-
-row = first_logodds_row('$FIXTURES/test_logodds.homer')
-out = first_meme_row('$WORK_DIR/py_logodds_bg.meme')
-if row is None or out is None:
-    print('Failed to parse rows')
-    sys.exit(1)
-bg = 0.2
-pc = 0.01
-raw = [2 ** v * bg for v in row]
-total = sum(raw) + pc * len(raw)
-expected = [(v + pc) / total for v in raw]
-for ev, ov in zip(expected, out):
-    if abs(ev - ov) > 1e-6:
-        print(f'Background conversion mismatch: {ev} vs {ov}')
-        sys.exit(1)
-print('OK')
-sys.exit(0)
-" > "$WORK_DIR/logodds_bg_check.txt" 2>&1
-if [ $? -eq 0 ]; then
-    pass "--background log-odds conversion"
-else
-    fail "--background log-odds conversion" "$(cat "$WORK_DIR/logodds_bg_check.txt")"
-fi
+check_diff "$WORK_DIR/py_logodds_bg.meme" "$FIXTURES/expected_logodds_bg_0.2.meme" "--background log-odds conversion"
 
 echo ""
 fi

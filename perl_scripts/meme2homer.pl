@@ -41,8 +41,6 @@ my %ALPHABETS = (
     'ACGU' => 'ACGU',
     'PROTEIN' => 'ACDEFGHIKLMNPQRSTVWY'
 );
-my $expected_cols = length($ALPHABETS{$alphabet} || $alphabet);
-
 my %config = (
     db => $db,
     motif_name => $motif_name,
@@ -54,7 +52,7 @@ my %config = (
     do_rc => $do_rc,
     trim_edges => $trim_edges,
     min_ic => $min_ic,
-    expected_cols => $expected_cols,
+    expected_cols => length($ALPHABETS{$alphabet} || $alphabet),
 );
 
 die "Error: unknown format: $output_fmt\n" unless $output_fmt eq 'homer' || $output_fmt eq 'json';
@@ -108,7 +106,7 @@ while (<$fh>) {
     if (/^letter-probability matrix:/) {
         $in_matrix = 1;
         if (/alength=\s*(\d+)/) {
-            $expected_cols = $1;
+            $config{expected_cols} = $1;
         }
         next;
     }
@@ -129,13 +127,13 @@ while (<$fh>) {
     if ($in_matrix && /^\s*[\d\.-]/) {
         s/^\s+//;
         my @row = split /\s+/;
-        if (scalar(@row) == $expected_cols) {
+        if (scalar(@row) == $config{expected_cols}) {
             if (grep { $_ < 0 } @row) {
                 warn "Warning: negative value in matrix row (expected probabilities): $_\n";
             }
             push @matrix, \@row;
         } else {
-            warn "Warning: skipping malformed matrix row (expected $expected_cols cols, got "
+            warn "Warning: skipping malformed matrix row (expected $config{expected_cols} cols, got "
                  . scalar(@row) . "): $_\n";
         }
     }

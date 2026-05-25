@@ -24,7 +24,7 @@ def _format_background_line(alphabet: str) -> str:
     return " ".join(parts)
 
 def _json_string(value: str) -> str:
-    return json.dumps(value, ensure_ascii=False)
+    return json.dumps(value, ensure_ascii=True)
 
 def logodds_to_prob(
     row: List[float], pseudocount: float = 0.01, background: float = 0.25
@@ -57,6 +57,8 @@ def read_meme(fh: TextIO, alphabet: str = "ACGT") -> Iterator[Motif]:
         stripped = line.strip()
 
         if stripped.startswith("MOTIF"):
+            if len(stripped) > 5 and not stripped[5].isspace():
+                continue
             if in_motif and matrix:
                 yield Motif(motif_id, description, matrix, alphabet)
 
@@ -136,6 +138,8 @@ def read_homer(
     description = ""
     matrix: List[List[float]] = []
 
+    expected_cols = len(_alphabet_letters(alphabet))
+
     for raw_line in fh:
         line = raw_line.rstrip("\n")
         stripped = line.strip()
@@ -165,7 +169,6 @@ def read_homer(
             row = [float(t) for t in tokens]
             if not row:
                 continue
-            expected_cols = len(_alphabet_letters(alphabet))
             if len(row) != expected_cols:
                 sys.stderr.write(
                     f"Warning: skipping malformed row (expected {expected_cols} cols, got {len(row)}): {stripped}\n"

@@ -72,13 +72,14 @@ Converting between the two lets you:
 motif-bridge/
 ├── README.md
 ├── LICENSE
+├── motif_bridge/          # Reusable Python library
+│   ├── __init__.py
+│   ├── core.py
+│   └── io.py
 ├── perl_scripts/          # Perl 5, runs on most servers without compilation
 │   ├── meme2homer.pl
 │   └── homer2meme.pl
-├── python_scripts/        # Python 3.8+, also available as SDK
-│   ├── motif_bridge/      # Reusable Python library
-│   │   ├── __init__.py
-│   │   └── core.py
+├── python_scripts/        # Python 3.8+ CLI wrappers
 │   ├── meme2homer.py
 │   └── homer2meme.py
 └── rust_scripts/          # Rust implementation, also available as Crate
@@ -331,23 +332,24 @@ Run `bash test_motif_bridge.sh` locally. The test suite covers:
 | Test stage | Description |
 |---|---|
 | 1. Cross-language consistency | Diff between Perl, Python, and Rust outputs |
-| 2. Single motif extraction | Test `-e` flag for extracting a named motif |
-| 3. stdin pipeline | Test `cat file | tool -i -` |
-| 4. gzip input | Test automatic decompression of `.gz` inputs |
-| 5. Round-trip | Validate matrix-level consistency for `meme→homer→meme` and `homer→meme→homer` |
-| 6. Log-odds conversion | Verify log-odds to probability conversion |
-| 7. Format compliance | Validate MEME headers, HOMER column counts, probability row sums |
-| 8. JSON I/O | Validate JSON output structure and round-trip |
-| 9. Explicit input format | Test `--input-format` flag (auto/logodds/probability) |
-| 10. Alphabet support | Test `--alphabet` flag for RNA/Protein motifs |
-| 11. Motif operations | Test `--rc`, `--trim-edges`, and `--min-ic` flags |
+| 2. Cross-language consistency (homer2meme) | Diff between Perl, Python, and Rust outputs |
+| 3. Single motif extraction | Test `-e` flag for extracting a named motif |
+| 4. stdin pipeline | Test `cat file | tool -i -` |
+| 5. gzip input | Test automatic decompression of `.gz` inputs |
+| 6. Round-trip | Validate matrix-level consistency for `meme→homer→meme` and `homer→meme→homer` |
+| 7. Log-odds conversion | Verify log-odds to probability conversion |
+| 8. Format compliance | Validate MEME headers, HOMER column counts, probability row sums |
+| 9. JSON I/O | Validate JSON output structure and round-trip |
+| 10. Explicit input format | Test `--input-format` flag (auto/logodds/probability) |
+| 11. Alphabet support | Test `--alphabet` flag for RNA/Protein motifs |
+| 12. Motif operations | Test `--rc`, `--trim-edges`, and `--min-ic` flags |
 
 ### Latest test result
 
 | Metric | Value |
 |---|---|
-| Total checks | 52 |
-| Passed | **52** ✅ |
+| Total checks | 59 |
+| Passed | **59** ✅ |
 | Failed | 0 |
 | Skipped | 0 |
 

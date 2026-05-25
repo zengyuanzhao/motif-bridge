@@ -73,6 +73,15 @@ pub fn read_meme<R: BufRead>(reader: R, alphabet_arg: &str) -> Result<Vec<Motif>
         let trimmed = line.trim();
 
         if let Some(rest) = trimmed.strip_prefix("MOTIF") {
+            if !rest.is_empty()
+                && !rest
+                    .chars()
+                    .next()
+                    .map(|c| c.is_whitespace())
+                    .unwrap_or(false)
+            {
+                continue;
+            }
             if in_motif && !matrix.is_empty() {
                 motifs.push(Motif::new(
                     motif_id.clone(),
@@ -83,6 +92,7 @@ pub fn read_meme<R: BufRead>(reader: R, alphabet_arg: &str) -> Result<Vec<Motif>
             }
             in_matrix = false;
 
+            let rest = rest.trim();
             let parts: Vec<&str> = rest.split_whitespace().collect();
             if parts.is_empty() {
                 in_motif = false;
@@ -187,6 +197,7 @@ pub fn read_homer<R: BufRead>(
     let mut description = String::new();
     let mut matrix: Vec<Vec<f64>> = Vec::new();
     let mut motifs = Vec::new();
+    let expected_cols = alphabet_letters(alphabet).chars().count();
 
     for line_result in reader.lines() {
         let line = line_result?;
@@ -232,8 +243,13 @@ pub fn read_homer<R: BufRead>(
             .collect();
         if let Ok(mut row) = row_result {
             if !row.is_empty() {
-                let expected_cols = alphabet_letters(alphabet).chars().count();
                 if row.len() != expected_cols {
+                    eprintln!(
+                        "Warning: skipping malformed row (expected {} cols, got {}): {}",
+                        expected_cols,
+                        row.len(),
+                        trimmed
+                    );
                     continue; // Skip malformed
                 }
                 if is_logodds(&row, matrix_type) {

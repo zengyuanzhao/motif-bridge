@@ -3,7 +3,7 @@
 ## Build, test, and lint commands
 
 ### Prerequisites
-- Python 3.6+, Perl 5 (with `IO::Uncompress::Gunzip`), Rust 1.70+.
+- Python 3.8+, Perl 5 (with `IO::Uncompress::Gunzip`), Rust 1.70+.
 
 ### Build
 - Rust release binaries:
