@@ -13,219 +13,104 @@
 //!   meme2homer -i motifs.meme -f json > motifs.json
 //!   zcat motifs.meme.gz | meme2homer -i -
 
+use clap::{ArgAction, Parser, ValueEnum};
 use flate2::read::MultiGzDecoder;
 use motif_bridge::io::{read_meme, write_homer, write_json};
-use std::env;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, BufWriter};
 
-// ---------------------------------------------------------------------------
-// Argument parsing
-// ---------------------------------------------------------------------------
-
+#[derive(Parser)]
+#[command(
+    name = "meme2homer",
+    about = "Convert MEME format to HOMER motif format.",
+    after_help = "Examples:\n  meme2homer -i motifs.meme -j JASPAR2026 > motifs.homer\n  meme2homer -i motifs.meme.gz -j JASPAR2026 > motifs.homer\n  meme2homer -i motifs.meme -b 0.25 -t 6\n  meme2homer -i motifs.meme -f json > motifs.json\n"
+)]
 struct Args {
+    /// Input MEME file (.meme or .meme.gz), or '-' for stdin
+    #[arg(short = 'i', value_name = "<file>")]
     input: String,
+    /// Database name (default: NA)
+    #[arg(short = 'j', default_value = "NA")]
     db: String,
+    /// Override motif name
+    #[arg(short = 'k', default_value = "")]
     motif_name: String,
+    /// Extract only specified motif by id or name
+    #[arg(short = 'e', default_value = "")]
     extract: String,
+    /// Background probability in (0, 1]
+    #[arg(short = 'b', value_parser = parse_prob, default_value = "0.25")]
     bg: f64,
+    /// Threshold offset in log2 bits
+    #[arg(short = 't', default_value = "4.0")]
     t_offset: f64,
+    /// Output format: homer (default) or json
+    #[arg(short = 'f', long = "format", value_enum, default_value_t = OutputFormat::Homer)]
     output_format: OutputFormat,
-    alphabet: String,
+    /// Alphabet: ACGT (DNA, default), ACGU (RNA), or PROTEIN
+    #[arg(long = "alphabet", value_enum, default_value_t = Alphabet::Acgt)]
+    alphabet: Alphabet,
+    /// Output the reverse complement of the motif (DNA/RNA only)
+    #[arg(long = "rc", action = ArgAction::SetTrue)]
     rc: bool,
+    /// Trim edges with information content below threshold
+    #[arg(long = "trim-edges", value_parser = parse_nonneg, default_value = "0.0")]
     trim_edges: f64,
+    /// Filter out motifs with total information content below threshold
+    #[arg(long = "min-ic", value_parser = parse_nonneg, default_value = "0.0")]
     min_ic: f64,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, ValueEnum)]
 enum OutputFormat {
+    #[value(name = "homer")]
     Homer,
+    #[value(name = "json")]
     Json,
 }
 
-fn parse_args(argv: &[String]) -> Result<Args, String> {
-    let mut input = String::new();
-    let mut db = String::from("NA");
-    let mut motif_name = String::new();
-    let mut extract = String::new();
-    let mut bg = 0.25_f64;
-    let mut t_offset = 4.0_f64;
-    let mut output_format = OutputFormat::Homer;
-    let mut alphabet = String::from("ACGT");
-    let mut rc = false;
-    let mut trim_edges = 0.0_f64;
-    let mut min_ic = 0.0_f64;
-    let mut i = 1usize;
-
-    while i < argv.len() {
-        match argv[i].as_str() {
-            "-i" => {
-                i += 1;
-                if i >= argv.len() {
-                    return Err("-i requires an argument.".into());
-                }
-                input = argv[i].clone();
-            }
-            "-j" => {
-                i += 1;
-                if i >= argv.len() {
-                    return Err("-j requires an argument.".into());
-                }
-                db = argv[i].clone();
-            }
-            "-k" => {
-                i += 1;
-                if i >= argv.len() {
-                    return Err("-k requires an argument.".into());
-                }
-                motif_name = argv[i].clone();
-            }
-            "-e" => {
-                i += 1;
-                if i >= argv.len() {
-                    return Err("-e requires an argument.".into());
-                }
-                extract = argv[i].clone();
-            }
-            "-b" => {
-                i += 1;
-                if i >= argv.len() {
-                    return Err("-b requires an argument.".into());
-                }
-                bg = argv[i]
-                    .parse::<f64>()
-                    .map_err(|_| format!("invalid -b value: {}", argv[i]))?;
-                if bg <= 0.0 || bg > 1.0 {
-                    return Err(format!("-b must be in (0, 1], got {}", bg));
-                }
-            }
-            "-t" => {
-                i += 1;
-                if i >= argv.len() {
-                    return Err("-t requires an argument.".into());
-                }
-                t_offset = argv[i]
-                    .parse::<f64>()
-                    .map_err(|_| format!("invalid -t value: {}", argv[i]))?;
-            }
-            "-f" | "--format" => {
-                i += 1;
-                if i >= argv.len() {
-                    return Err(format!("{} requires an argument.", argv[i - 1]));
-                }
-                output_format = match argv[i].as_str() {
-                    "homer" => OutputFormat::Homer,
-                    "json" => OutputFormat::Json,
-                    other => return Err(format!("unknown format: {}", other)),
-                };
-            }
-            "--alphabet" => {
-                i += 1;
-                if i >= argv.len() {
-                    return Err("--alphabet requires an argument.".into());
-                }
-                let val = argv[i].as_str();
-                if val != "ACGT" && val != "ACGU" && val != "PROTEIN" {
-                    return Err(format!("unknown alphabet: {}", val));
-                }
-                alphabet = val.to_string();
-            }
-            "--rc" => {
-                rc = true;
-            }
-            "--trim-edges" => {
-                i += 1;
-                if i >= argv.len() {
-                    return Err("--trim-edges requires an argument.".into());
-                }
-                trim_edges = argv[i]
-                    .parse::<f64>()
-                    .map_err(|_| format!("invalid --trim-edges value: {}", argv[i]))?;
-                if trim_edges < 0.0 {
-                    return Err(format!("--trim-edges must be >= 0, got {}", trim_edges));
-                }
-            }
-            "--min-ic" => {
-                i += 1;
-                if i >= argv.len() {
-                    return Err("--min-ic requires an argument.".into());
-                }
-                min_ic = argv[i]
-                    .parse::<f64>()
-                    .map_err(|_| format!("invalid --min-ic value: {}", argv[i]))?;
-                if min_ic < 0.0 {
-                    return Err(format!("--min-ic must be >= 0, got {}", min_ic));
-                }
-            }
-            "-h" | "--help" => {
-                usage();
-                std::process::exit(0);
-            }
-            other => {
-                eprintln!("Unknown option: {}", other);
-                usage();
-                std::process::exit(1);
-            }
-        }
-        i += 1;
-    }
-    if input.is_empty() {
-        return Err("-i <input_file> is required.".into());
-    }
-    Ok(Args {
-        input,
-        db,
-        motif_name,
-        extract,
-        bg,
-        t_offset,
-        output_format,
-        alphabet,
-        rc,
-        trim_edges,
-        min_ic,
-    })
+#[derive(Clone, Copy, ValueEnum)]
+enum Alphabet {
+    #[value(name = "ACGT")]
+    Acgt,
+    #[value(name = "ACGU")]
+    Acgu,
+    #[value(name = "PROTEIN")]
+    Protein,
 }
 
-fn usage() {
-    eprintln!(
-        r#"Usage: meme2homer -i <input_file> [OPTIONS]
+impl Alphabet {
+    fn as_str(self) -> &'static str {
+        match self {
+            Alphabet::Acgt => "ACGT",
+            Alphabet::Acgu => "ACGU",
+            Alphabet::Protein => "PROTEIN",
+        }
+    }
+}
 
-Convert MEME format to HOMER motif format.
+fn parse_prob(value: &str) -> Result<f64, String> {
+    let v = value
+        .parse::<f64>()
+        .map_err(|_| format!("invalid -b value: {}", value))?;
+    if v <= 0.0 || v > 1.0 {
+        return Err(format!("-b must be in (0, 1], got {}", v));
+    }
+    Ok(v)
+}
 
-Options:
-    -i <file>    Input MEME file (.meme or .meme.gz), or '-' for stdin
-    -j <string>  Database name (default: NA)
-    -k <string>  Override motif name
-    -e <string>  Extract only specified motif by id or name
-    -b <float>   Background probability in (0, 1] (default: 0.25)
-    -t <float>   Threshold offset in log2 bits (default: 4.0)
-    -f, --format <fmt>  Output format: homer (default) or json
-    --alphabet <str> Alphabet: ACGT (DNA, default), ACGU (RNA), or PROTEIN
-    --rc         Output the reverse complement of the motif (DNA/RNA only)
-    --trim-edges <float> Trim edges with information content below threshold
-    --min-ic <float> Filter out motifs with total information content below threshold
-    -h           Show this help
-
-Examples:
-    meme2homer -i motifs.meme -j JASPAR2026 > motifs.homer
-    meme2homer -i motifs.meme.gz -j JASPAR2026 > motifs.homer
-    meme2homer -i motifs.meme -b 0.25 -t 6
-    meme2homer -i motifs.meme -f json > motifs.json
-"#
-    );
+fn parse_nonneg(value: &str) -> Result<f64, String> {
+    let v = value
+        .parse::<f64>()
+        .map_err(|_| format!("invalid value: {}", value))?;
+    if v < 0.0 {
+        return Err(format!("value must be >= 0, got {}", v));
+    }
+    Ok(v)
 }
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
-    let argv: Vec<String> = env::args().collect();
-    let args = match parse_args(&argv) {
-        Ok(args) => args,
-        Err(e) => {
-            eprintln!("Error: {}", e);
-            usage();
-            std::process::exit(1);
-        }
-    };
+    let args = Args::parse();
 
     let reader: Box<dyn BufRead> = if args.input == "-" {
         Box::new(BufReader::new(io::stdin().lock()))
@@ -237,7 +122,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         Box::new(BufReader::new(file))
     };
 
-    let raw_motifs = read_meme(reader, &args.alphabet)?;
+    let raw_motifs = read_meme(reader, args.alphabet.as_str())?;
     let mut processed_motifs = Vec::new();
 
     for mut m in raw_motifs {
@@ -267,6 +152,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         if args.min_ic > 0.0 && m.total_ic() < args.min_ic {
             continue;
         }
+
         processed_motifs.push(m);
     }
 

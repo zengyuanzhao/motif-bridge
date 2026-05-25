@@ -43,6 +43,20 @@ my %ALPHABETS = (
 );
 my $expected_cols = length($ALPHABETS{$alphabet} || $alphabet);
 
+my %config = (
+    db => $db,
+    motif_name => $motif_name,
+    extract => $extract,
+    bg => $bg,
+    t_offset => $t_offset,
+    output_fmt => $output_fmt,
+    alphabet => $alphabet,
+    do_rc => $do_rc,
+    trim_edges => $trim_edges,
+    min_ic => $min_ic,
+    expected_cols => $expected_cols,
+);
+
 die "Error: unknown format: $output_fmt\n" unless $output_fmt eq 'homer' || $output_fmt eq 'json';
 
 my $fh;
@@ -67,7 +81,7 @@ while (<$fh>) {
 
     if (/^MOTIF\s+(\S+)(?:\s+(.*))?/) {
         if ($in_motif && @matrix) {
-            process_motif($motif_id, $description, \@matrix, $bg, $t_offset, $output_fmt, \@motifs);
+            process_motif($motif_id, $description, \@matrix, \%config, \@motifs);
         }
 
         $in_motif  = 1;
@@ -104,7 +118,7 @@ while (<$fh>) {
     }
     if (/^\/\//) {
         if (@matrix) {
-            process_motif($motif_id, $description, \@matrix, $bg, $t_offset, $output_fmt, \@motifs);
+            process_motif($motif_id, $description, \@matrix, \%config, \@motifs);
         }
         $in_motif  = 0;
         $in_matrix = 0;
@@ -112,10 +126,13 @@ while (<$fh>) {
         next;
     }
 
-    if ($in_matrix && /^\s*[\d.]/) {
+    if ($in_matrix && /^\s*[\d\.-]/) {
         s/^\s+//;
         my @row = split /\s+/;
         if (scalar(@row) == $expected_cols) {
+            if (grep { $_ < 0 } @row) {
+                warn "Warning: negative value in matrix row (expected probabilities): $_\n";
+            }
             push @matrix, \@row;
         } else {
             warn "Warning: skipping malformed matrix row (expected $expected_cols cols, got "
@@ -125,7 +142,7 @@ while (<$fh>) {
 }
 
 if ($in_motif && @matrix) {
-    process_motif($motif_id, $description, \@matrix, $bg, $t_offset, $output_fmt, \@motifs);
+    process_motif($motif_id, $description, \@matrix, \%config, \@motifs);
 }
 
 if ($input ne '-') {
@@ -136,18 +153,19 @@ if ($input ne '-') {
     }
 }
 
-if ($output_fmt eq 'json') {
+if ($config{output_fmt} eq 'json') {
     print_json(\@motifs);
 }
 
 # ---------------------------------------------------------------------------
 
 sub process_motif {
-    my ($id, $desc, $matrix_ref, $bg, $t_offset, $output_fmt, $motifs_ref) = @_;
+    my ($id, $desc, $matrix_ref, $config, $motifs_ref) = @_;
 
     my @mat = @$matrix_ref;
+    my $alphabet = $config->{alphabet};
 
-    if ($do_rc) {
+    if ($config->{do_rc}) {
         if ($alphabet eq 'ACGT' || $alphabet eq 'ACGU') {
             @mat = reverse_complement(\@mat, \$id);
         } else {
@@ -155,19 +173,19 @@ sub process_motif {
         }
     }
 
-    if ($trim_edges > 0) {
-        @mat = trim_edges(\@mat, $trim_edges, $alphabet);
+    if ($config->{trim_edges} > 0) {
+        @mat = trim_edges(\@mat, $config->{trim_edges}, $alphabet);
         if (!@mat) {
-            warn "Warning: motif '$id' trimmed to empty matrix (IC threshold=$trim_edges)\n";
+            warn "Warning: motif '$id' trimmed to empty matrix (IC threshold=$config->{trim_edges})\n";
             return;
         }
     }
 
-    if ($min_ic > 0 && total_ic(\@mat, $alphabet) < $min_ic) {
+    if ($config->{min_ic} > 0 && total_ic(\@mat, $alphabet) < $config->{min_ic}) {
         return;
     }
 
-    if ($output_fmt eq 'json') {
+    if ($config->{output_fmt} eq 'json') {
         push @$motifs_ref, {
             id => $id,
             description => $desc,
@@ -175,7 +193,7 @@ sub process_motif {
             alphabet => $alphabet,
         };
     } else {
-        my $score = calculate_score(\@mat, $bg, $t_offset);
+        my $score = calculate_score(\@mat, $config->{bg}, $config->{t_offset});
         print_motif($id, $desc, $score, \@mat);
     }
 }
@@ -263,18 +281,10 @@ sub print_motif {
     }
 }
 
-sub escape_json {
-    my ($s) = @_;
-    $s =~ s/\\/\\\\/g;
-    $s =~ s/"/\\"/g;
-    $s =~ s/\n/\\n/g;
-    $s =~ s/\r/\\r/g;
-    $s =~ s/\t/\\t/g;
-    return $s;
-}
-
 sub print_json {
     my ($motifs_ref) = @_;
+    require JSON::PP;
+    my $encoder = JSON::PP->new->allow_nonref;
     print "{\n";
     print "  \"version\": \"1.0\",\n";
     print "  \"source\": \"meme\",\n";
@@ -282,9 +292,9 @@ sub print_json {
     for my $mi (0 .. $#{$motifs_ref}) {
         my $m = $motifs_ref->[$mi];
         print "    {\n";
-        print "      \"id\": \"" . escape_json($m->{id}) . "\",\n";
-        print "      \"description\": \"" . escape_json($m->{description}) . "\",\n";
-        print "      \"alphabet\": \"" . escape_json($m->{alphabet}) . "\",\n" if $m->{alphabet};
+        print "      \"id\": " . $encoder->encode($m->{id}) . ",\n";
+        print "      \"description\": " . $encoder->encode($m->{description}) . ",\n";
+        print "      \"alphabet\": " . $encoder->encode($m->{alphabet}) . ",\n" if $m->{alphabet};
         print "      \"matrix\": [\n";
         for my $ri (0 .. $#{$m->{matrix}}) {
             my $row = $m->{matrix}->[$ri];

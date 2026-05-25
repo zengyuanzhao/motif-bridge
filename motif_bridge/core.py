@@ -76,7 +76,7 @@ class Motif:
         return {
             "id": self.id,
             "description": self.description,
-            "matrix": self.matrix,
+            "matrix": [row[:] for row in self.matrix],
             "alphabet": self.alphabet,
         }
 
@@ -89,14 +89,3 @@ class Motif:
                 score += math.log2(max_p / bg)
         score -= t_offset
         return max(score, 0.0)
-
-    def print_meme_motif(self) -> None:
-        """Print motif in MEME format (MOTIF block only, no version header)."""
-        expected_cols = 20 if self.alphabet == "PROTEIN" else 4
-        width = len(self.matrix)
-        print(f"MOTIF {self.id} {self.description}")
-        print()
-        print(f"letter-probability matrix: alength= {expected_cols} w= {width} nsites= 20 E= 0")
-        for row in self.matrix:
-            print("  " + "  ".join(f"{v:.6f}" for v in row))
-        print()

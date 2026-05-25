@@ -14,183 +14,131 @@
 //!   homer2meme -i motifs.homer --input-format logodds > motifs.meme
 //!   cat motifs.homer | homer2meme -i -
 
+use clap::{ArgAction, Parser, ValueEnum};
 use flate2::read::MultiGzDecoder;
 use motif_bridge::io::{read_homer, read_json, write_meme, MatrixType};
-use std::env;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, BufWriter};
 
-#[derive(Clone, Copy)]
-enum InputFormat {
-    Homer,
-    Json,
-}
-
+#[derive(Parser)]
+#[command(
+    name = "homer2meme",
+    about = "Convert HOMER motif format to MEME format.",
+    after_help = "Examples:\n  homer2meme -i motifs.homer > motifs.meme\n  homer2meme -i motifs.homer.gz > motifs.meme\n  homer2meme -i motifs.homer -e \"CTCF/Jaspar\"\n  homer2meme -i motifs.json -f json > motifs.meme\n  homer2meme -i motifs.homer --input-format logodds\n  cat motifs.homer | homer2meme -i -\n"
+)]
 struct Args {
+    /// Input HOMER motif file (.homer, .motif, .json, or .gz), or '-' for stdin
+    #[arg(short = 'i', value_name = "<file>")]
     input: String,
+    /// Extract only specified motif by id or description
+    #[arg(short = 'e', default_value = "")]
     extract: String,
+    /// Pseudocount for log-odds -> probability conversion
+    #[arg(short = 'a', value_parser = parse_positive, default_value = "0.01")]
     pseudocount: f64,
+    /// Background probability for log-odds conversion
+    #[arg(short = 'b', long = "background", value_parser = parse_prob, default_value = "0.25")]
+    background: f64,
+    /// Input format: homer (default) or json
+    #[arg(short = 'f', long = "format", value_enum, default_value_t = InputFormat::Homer)]
     input_format: InputFormat,
-    matrix_type: MatrixType,
+    /// Matrix type: auto (default), logodds, or probability
+    #[arg(long = "input-format", value_enum, default_value_t = MatrixTypeArg::Auto)]
+    matrix_type: MatrixTypeArg,
+    /// Alphabet for HOMER input
+    #[arg(long = "alphabet", value_enum, default_value_t = Alphabet::Acgt)]
+    alphabet: Alphabet,
+    /// Output the reverse complement of the motif (DNA/RNA only)
+    #[arg(long = "rc", action = ArgAction::SetTrue)]
     rc: bool,
+    /// Trim edges with information content below threshold
+    #[arg(long = "trim-edges", value_parser = parse_nonneg, default_value = "0.0")]
     trim_edges: f64,
+    /// Filter out motifs with total information content below threshold
+    #[arg(long = "min-ic", value_parser = parse_nonneg, default_value = "0.0")]
     min_ic: f64,
 }
 
-fn parse_args(argv: &[String]) -> Result<Args, String> {
-    let mut input = String::new();
-    let mut extract = String::new();
-    let mut pseudocount = 0.01_f64;
-    let mut input_format = InputFormat::Homer;
-    let mut matrix_type = MatrixType::Auto;
-    let mut rc = false;
-    let mut trim_edges = 0.0_f64;
-    let mut min_ic = 0.0_f64;
-    let mut i = 1usize;
-
-    while i < argv.len() {
-        match argv[i].as_str() {
-            "-i" => {
-                i += 1;
-                if i >= argv.len() {
-                    return Err("-i requires a value".into());
-                }
-                input = argv[i].clone();
-            }
-            "-e" => {
-                i += 1;
-                if i >= argv.len() {
-                    return Err("-e requires a value".into());
-                }
-                extract = argv[i].clone();
-            }
-            "-a" => {
-                i += 1;
-                if i >= argv.len() {
-                    return Err("-a requires a value".into());
-                }
-                pseudocount = argv[i]
-                    .parse::<f64>()
-                    .map_err(|_| format!("invalid -a value: {}", argv[i]))?;
-                if pseudocount <= 0.0 {
-                    return Err(format!("-a must be > 0, got {}", pseudocount));
-                }
-            }
-            "-f" | "--format" => {
-                i += 1;
-                if i >= argv.len() {
-                    return Err(format!("{} requires a value", argv[i - 1]));
-                }
-                input_format = match argv[i].as_str() {
-                    "homer" => InputFormat::Homer,
-                    "json" => InputFormat::Json,
-                    other => return Err(format!("unknown format: {}", other)),
-                };
-            }
-            "--input-format" => {
-                i += 1;
-                if i >= argv.len() {
-                    return Err("--input-format requires a value".into());
-                }
-                matrix_type = match argv[i].as_str() {
-                    "auto" => MatrixType::Auto,
-                    "logodds" => MatrixType::Logodds,
-                    "probability" => MatrixType::Probability,
-                    other => return Err(format!("unknown input-format: {}", other)),
-                };
-            }
-            "--rc" => {
-                rc = true;
-            }
-            "--trim-edges" => {
-                i += 1;
-                if i >= argv.len() {
-                    return Err("--trim-edges requires an argument.".into());
-                }
-                trim_edges = argv[i]
-                    .parse::<f64>()
-                    .map_err(|_| format!("invalid --trim-edges value: {}", argv[i]))?;
-                if trim_edges < 0.0 {
-                    return Err(format!("--trim-edges must be >= 0, got {}", trim_edges));
-                }
-            }
-            "--min-ic" => {
-                i += 1;
-                if i >= argv.len() {
-                    return Err("--min-ic requires an argument.".into());
-                }
-                min_ic = argv[i]
-                    .parse::<f64>()
-                    .map_err(|_| format!("invalid --min-ic value: {}", argv[i]))?;
-                if min_ic < 0.0 {
-                    return Err(format!("--min-ic must be >= 0, got {}", min_ic));
-                }
-            }
-            "-h" | "--help" => {
-                usage();
-                std::process::exit(0);
-            }
-            other => {
-                eprintln!("Unknown option: {}", other);
-                usage();
-                std::process::exit(1);
-            }
-        }
-        i += 1;
-    }
-    if input.is_empty() {
-        return Err("-i <input_file> is required.".into());
-    }
-    Ok(Args {
-        input,
-        extract,
-        pseudocount,
-        input_format,
-        matrix_type,
-        rc,
-        trim_edges,
-        min_ic,
-    })
+#[derive(Clone, Copy, ValueEnum)]
+enum InputFormat {
+    #[value(name = "homer")]
+    Homer,
+    #[value(name = "json")]
+    Json,
 }
 
-fn usage() {
-    eprintln!(
-        r#"Usage: homer2meme -i <input_file> [OPTIONS]
+#[derive(Clone, Copy, ValueEnum)]
+enum MatrixTypeArg {
+    #[value(name = "auto")]
+    Auto,
+    #[value(name = "logodds")]
+    Logodds,
+    #[value(name = "probability")]
+    Probability,
+}
 
-Convert HOMER motif format to MEME format.
+#[derive(Clone, Copy, ValueEnum)]
+enum Alphabet {
+    #[value(name = "ACGT")]
+    Acgt,
+    #[value(name = "ACGU")]
+    Acgu,
+    #[value(name = "PROTEIN")]
+    Protein,
+}
 
-Options:
-    -i <file>    Input HOMER motif file (.homer, .motif, .json, or .gz), or '-' for stdin
-    -e <string>  Extract only specified motif by id or description
-    -a <float>   Pseudocount for log-odds -> probability conversion (default: 0.01)
-    -f, --format <fmt>  Input format: homer (default) or json
-    --input-format <fmt>  Matrix type: auto (default), logodds, or probability
-    --rc         Output the reverse complement of the motif (DNA/RNA only)
-    --trim-edges <float> Trim edges with information content below threshold
-    --min-ic <float> Filter out motifs with total information content below threshold
-    -h           Show this help
+impl Alphabet {
+    fn as_str(self) -> &'static str {
+        match self {
+            Alphabet::Acgt => "ACGT",
+            Alphabet::Acgu => "ACGU",
+            Alphabet::Protein => "PROTEIN",
+        }
+    }
+}
 
-Examples:
-    homer2meme -i motifs.homer > motifs.meme
-    homer2meme -i motifs.homer.gz > motifs.meme
-    homer2meme -i motifs.homer -e "CTCF/Jaspar"
-    homer2meme -i motifs.json -f json > motifs.meme
-    homer2meme -i motifs.homer --input-format logodds
-    cat motifs.homer | homer2meme -i -
-"#
-    );
+impl MatrixTypeArg {
+    fn to_matrix_type(self) -> MatrixType {
+        match self {
+            MatrixTypeArg::Auto => MatrixType::Auto,
+            MatrixTypeArg::Logodds => MatrixType::Logodds,
+            MatrixTypeArg::Probability => MatrixType::Probability,
+        }
+    }
+}
+
+fn parse_positive(value: &str) -> Result<f64, String> {
+    let v = value
+        .parse::<f64>()
+        .map_err(|_| format!("invalid -a value: {}", value))?;
+    if v <= 0.0 {
+        return Err(format!("-a must be > 0, got {}", v));
+    }
+    Ok(v)
+}
+
+fn parse_prob(value: &str) -> Result<f64, String> {
+    let v = value
+        .parse::<f64>()
+        .map_err(|_| format!("invalid -b value: {}", value))?;
+    if v <= 0.0 || v > 1.0 {
+        return Err(format!("-b must be in (0, 1], got {}", v));
+    }
+    Ok(v)
+}
+
+fn parse_nonneg(value: &str) -> Result<f64, String> {
+    let v = value
+        .parse::<f64>()
+        .map_err(|_| format!("invalid value: {}", value))?;
+    if v < 0.0 {
+        return Err(format!("value must be >= 0, got {}", v));
+    }
+    Ok(v)
 }
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
-    let argv: Vec<String> = env::args().collect();
-    let args = match parse_args(&argv) {
-        Ok(args) => args,
-        Err(e) => {
-            eprintln!("Error: {}", e);
-            usage();
-            std::process::exit(1);
-        }
-    };
+    let args = Args::parse();
 
     let reader: Box<dyn BufRead> = if args.input == "-" {
         Box::new(BufReader::new(io::stdin().lock()))
@@ -202,9 +150,16 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         Box::new(BufReader::new(file))
     };
 
+    let matrix_type = args.matrix_type.to_matrix_type();
     let raw_motifs = match args.input_format {
-        InputFormat::Json => read_json(reader, args.pseudocount)?,
-        InputFormat::Homer => read_homer(reader, args.pseudocount, args.matrix_type)?,
+        InputFormat::Json => read_json(reader, args.pseudocount, matrix_type, args.background)?,
+        InputFormat::Homer => read_homer(
+            reader,
+            args.pseudocount,
+            matrix_type,
+            args.alphabet.as_str(),
+            args.background,
+        )?,
     };
 
     let mut processed_motifs = Vec::new();

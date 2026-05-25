@@ -7,6 +7,8 @@ Usage:
     python homer2meme.py -i motifs.homer.gz > motifs.meme
     python homer2meme.py -i motifs.json -f json > motifs.meme
     python homer2meme.py -i motifs.homer --input-format logodds > motifs.meme
+    python homer2meme.py -i motifs.homer --input-format logodds -b 0.2 > motifs.meme
+    python homer2meme.py -i motifs.homer --alphabet ACGU > motifs.meme
     cat motifs.homer | python homer2meme.py -i -
 
 Requires: Python 3.8+, no external dependencies
@@ -16,16 +18,7 @@ import argparse
 import gzip
 import sys
 
-try:
-    from motif_bridge.io import read_homer, read_json, write_meme
-except ImportError:
-    import os
-
-    # Add project root to sys.path
-    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    if root not in sys.path:
-        sys.path.insert(0, root)
-    from motif_bridge.io import read_homer, read_json, write_meme
+from motif_bridge.io import read_homer, read_json, write_meme
 
 
 def positive_float(value: str) -> float:
@@ -35,6 +28,16 @@ def positive_float(value: str) -> float:
         raise argparse.ArgumentTypeError(f"Invalid float value: {value}") from exc
     if v <= 0:
         raise argparse.ArgumentTypeError("-a must be > 0.")
+    return v
+
+
+def background_prob(value: str) -> float:
+    try:
+        v = float(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"Invalid float value: {value}") from exc
+    if not (0 < v <= 1):
+        raise argparse.ArgumentTypeError("-b must be in (0, 1].")
     return v
 
 
@@ -49,6 +52,8 @@ def parse_args() -> argparse.Namespace:
             '  %(prog)s -i results/motifs.homer -e "CTCF/Jaspar"\n'
             "  %(prog)s -i motifs.json -f json > motifs.meme\n"
             "  %(prog)s -i motifs.homer --input-format logodds\n"
+            "  %(prog)s -i motifs.homer --input-format logodds -b 0.2\n"
+            "  %(prog)s -i motifs.homer --alphabet ACGU\n"
             "  cat motifs.homer | %(prog)s -i -\n"
         ),
     )
@@ -72,6 +77,14 @@ def parse_args() -> argparse.Namespace:
         help="Pseudocount for log-odds -> probability (default: 0.01)",
     )
     parser.add_argument(
+        "-b",
+        "--background",
+        metavar="<float>",
+        type=background_prob,
+        default=0.25,
+        help="Background probability for log-odds conversion (default: 0.25)",
+    )
+    parser.add_argument(
         "-f",
         "--format",
         choices=["homer", "json"],
@@ -83,6 +96,12 @@ def parse_args() -> argparse.Namespace:
         choices=["auto", "logodds", "probability"],
         default="auto",
         help="Matrix type: auto (default), logodds, or probability",
+    )
+    parser.add_argument(
+        "--alphabet",
+        choices=["ACGT", "ACGU", "PROTEIN"],
+        default="ACGT",
+        help="Alphabet for HOMER input: ACGT (default), ACGU, or PROTEIN",
     )
     parser.add_argument(
         "--rc",
@@ -141,9 +160,17 @@ def main() -> None:
         fh = open_input(args.i)
 
         if args.format == "json":
-            raw_motifs = read_json(fh, pseudocount=args.a)
+            raw_motifs = read_json(
+                fh, pseudocount=args.a, input_format=args.input_format, background=args.background
+            )
         else:
-            raw_motifs = read_homer(fh, pseudocount=args.a, input_format=args.input_format)
+            raw_motifs = read_homer(
+                fh,
+                pseudocount=args.a,
+                input_format=args.input_format,
+                alphabet=args.alphabet,
+                background=args.background,
+            )
 
         processed_motifs = process_motifs(raw_motifs, args)
         write_meme(processed_motifs, sys.stdout)

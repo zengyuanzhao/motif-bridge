@@ -2,7 +2,7 @@
 # test_motif_bridge.sh - CLI regression tests for motif-bridge
 #
 # Tests meme2homer and homer2meme across Python, Perl, and Rust implementations.
-# Requires: python3, perl, cargo (for Rust build), diff, gzip
+# Requires: python3 (or python), perl, cargo (for Rust build), diff, gzip
 #
 # Usage:
 #   bash test_motif_bridge.sh              # Run all tests
@@ -21,6 +21,8 @@
 #   8  - Format compliance
 #   9  - JSON output format
 #   10 - --input-format explicit specification
+#   11 - --alphabet support
+#   12 - Motif Operations (--rc, --trim-edges, --min-ic)
 #
 # Exit codes:
 #   0 - all tests passed
@@ -32,6 +34,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FIXTURES="$SCRIPT_DIR/fixtures"
 WORK_DIR=$(mktemp -d)
 trap 'rm -rf "$WORK_DIR"' EXIT
+export PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}"
 
 PASS=0
 FAIL=0
@@ -113,7 +116,14 @@ check_exit() {
 
 echo "=== Prerequisites ==="
 
-command -v python3 > /dev/null 2>&1 || { echo "SKIP: python3 not found"; exit 1; }
+if ! command -v python3 > /dev/null 2>&1; then
+    if command -v python > /dev/null 2>&1; then
+        python3() { python "$@"; }
+    else
+        echo "SKIP: python3 not found"
+        exit 1
+    fi
+fi
 command -v perl > /dev/null 2>&1 || { echo "SKIP: perl not found"; exit 1; }
 command -v diff > /dev/null 2>&1 || { echo "SKIP: diff not found"; exit 1; }
 
@@ -412,6 +422,63 @@ else
     fail "Log-odds output rows sum to ~1.0" "$(cat "$WORK_DIR/logodds_check.txt")"
 fi
 
+# Verify --background affects log-odds conversion consistently
+python3 "$PYTHON/homer2meme.py" -i "$FIXTURES/test_logodds.homer" --input-format logodds -b 0.2 > "$WORK_DIR/py_logodds_bg.meme" 2>&1
+perl "$PERL/homer2meme.pl" -i "$FIXTURES/test_logodds.homer" --input-format logodds -b 0.2 > "$WORK_DIR/pl_logodds_bg.meme" 2>&1
+check_diff "$WORK_DIR/py_logodds_bg.meme" "$WORK_DIR/pl_logodds_bg.meme" "Python vs Perl log-odds background"
+
+if [ -n "$RUST_BIN" ]; then
+    "$RUST_BIN/homer2meme" -i "$FIXTURES/test_logodds.homer" --input-format logodds -b 0.2 > "$WORK_DIR/rs_logodds_bg.meme" 2>&1
+    check_diff "$WORK_DIR/py_logodds_bg.meme" "$WORK_DIR/rs_logodds_bg.meme" "Python vs Rust log-odds background"
+fi
+
+python3 -c "
+import math, sys
+def first_logodds_row(path):
+    with open(path) as f:
+        for line in f:
+            s = line.strip()
+            if s.startswith('>') or not s:
+                continue
+            if s[0].isdigit() or s.startswith('-') or s.startswith('.'):
+                return [float(x) for x in s.split()]
+    return None
+
+def first_meme_row(path):
+    with open(path) as f:
+        in_matrix = False
+        for line in f:
+            s = line.strip()
+            if s.startswith('letter-probability'):
+                in_matrix = True
+                continue
+            if in_matrix and s and (s[0].isdigit() or s.startswith('.')):
+                return [float(x) for x in s.split()]
+    return None
+
+row = first_logodds_row('$FIXTURES/test_logodds.homer')
+out = first_meme_row('$WORK_DIR/py_logodds_bg.meme')
+if row is None or out is None:
+    print('Failed to parse rows')
+    sys.exit(1)
+bg = 0.2
+pc = 0.01
+raw = [2 ** v * bg for v in row]
+total = sum(raw) + pc * len(raw)
+expected = [(v + pc) / total for v in raw]
+for ev, ov in zip(expected, out):
+    if abs(ev - ov) > 1e-6:
+        print(f'Background conversion mismatch: {ev} vs {ov}')
+        sys.exit(1)
+print('OK')
+sys.exit(0)
+" > "$WORK_DIR/logodds_bg_check.txt" 2>&1
+if [ $? -eq 0 ]; then
+    pass "--background log-odds conversion"
+else
+    fail "--background log-odds conversion" "$(cat "$WORK_DIR/logodds_bg_check.txt")"
+fi
+
 echo ""
 fi
 
@@ -494,6 +561,7 @@ if run_stage 9 "JSON output format"; then
 
 python3 "$PYTHON/meme2homer.py" -i "$FIXTURES/test.meme" -j JASPAR2026 -f json > "$WORK_DIR/py_json.json" 2>&1
 perl "$PERL/meme2homer.pl" -i "$FIXTURES/test.meme" -j JASPAR2026 -f json > "$WORK_DIR/pl_json.json" 2>&1
+check_diff "$WORK_DIR/py_json.json" "$WORK_DIR/pl_json.json" "Python vs Perl JSON output"
 
 # Validate JSON structure
 python3 -c "
@@ -587,39 +655,7 @@ fi
 
 if [ -n "$RUST_BIN" ]; then
     "$RUST_BIN/meme2homer" -i "$FIXTURES/test.meme" -j JASPAR2026 -f json > "$WORK_DIR/rs_json.json" 2>&1
-    # Compare JSON outputs by matrix values (formatting may differ)
-    python3 -c "
-import json, sys
-with open('$WORK_DIR/py_json.json') as f:
-    py = json.load(f)
-with open('$WORK_DIR/rs_json.json') as f:
-    rs = json.load(f)
-if py.get('version') != rs.get('version') or py.get('source') != rs.get('source'):
-    print('Version/source mismatch')
-    sys.exit(1)
-if len(py.get('motifs', [])) != len(rs.get('motifs', [])):
-    print(f'Motif count mismatch: {len(py.get(\"motifs\", []))} vs {len(rs.get(\"motifs\", []))}')
-    sys.exit(1)
-for pm, rm in zip(py['motifs'], rs['motifs']):
-    if pm['id'] != rm['id'] or pm['description'] != rm['description']:
-        print(f'ID/desc mismatch: {pm[\"id\"]} vs {rm[\"id\"]}')
-        sys.exit(1)
-    if len(pm['matrix']) != len(rm['matrix']):
-        print(f'Matrix length mismatch for {pm[\"id\"]}')
-        sys.exit(1)
-    for pr, rr in zip(pm['matrix'], rm['matrix']):
-        for pv, rv in zip(pr, rr):
-            if abs(pv - rv) > 1e-6:
-                print(f'Value mismatch: {pv} vs {rv}')
-                sys.exit(1)
-print('OK')
-sys.exit(0)
-" > "$WORK_DIR/json_diff.txt" 2>&1
-    if [ $? -eq 0 ]; then
-        pass "Python vs Rust JSON output"
-    else
-        fail "Python vs Rust JSON output" "$(cat "$WORK_DIR/json_diff.txt")"
-    fi
+    check_diff "$WORK_DIR/py_json.json" "$WORK_DIR/rs_json.json" "Python vs Rust JSON output"
 fi
 
 # Test homer2meme JSON input
@@ -758,6 +794,41 @@ sys.exit(0)
     else
         fail "Python vs Rust JSON --alphabet ACGU" "$(cat "$WORK_DIR/json_alphabet_diff_rs.txt")"
     fi
+fi
+
+# homer2meme should respect --alphabet for MEME header
+python3 "$PYTHON/homer2meme.py" -i "$WORK_DIR/py_rna.homer" --alphabet ACGU > "$WORK_DIR/py_rna_back.meme" 2>&1
+perl "$PERL/homer2meme.pl" -i "$WORK_DIR/py_rna.homer" --alphabet ACGU > "$WORK_DIR/pl_rna_back.meme" 2>&1
+check_diff "$WORK_DIR/py_rna_back.meme" "$WORK_DIR/pl_rna_back.meme" "Python vs Perl homer2meme --alphabet ACGU"
+
+if [ -n "$RUST_BIN" ]; then
+    "$RUST_BIN/homer2meme" -i "$WORK_DIR/py_rna.homer" --alphabet ACGU > "$WORK_DIR/rs_rna_back.meme" 2>&1
+    check_diff "$WORK_DIR/py_rna_back.meme" "$WORK_DIR/rs_rna_back.meme" "Python vs Rust homer2meme --alphabet ACGU"
+fi
+
+python3 -c "
+import sys
+lines = [l.strip() for l in open('$WORK_DIR/py_rna_back.meme')]
+alphabet = next((l for l in lines if l.startswith('ALPHABET=')), '')
+if alphabet != 'ALPHABET= ACGU':
+    print(f'Unexpected alphabet line: {alphabet}')
+    sys.exit(1)
+try:
+    idx = lines.index('Background letter frequencies')
+    bg = lines[idx + 1]
+except ValueError:
+    print('Missing background letter frequencies')
+    sys.exit(1)
+if 'U 0.25' not in bg or 'T ' in bg:
+    print(f'Unexpected background line: {bg}')
+    sys.exit(1)
+print('OK')
+sys.exit(0)
+" > "$WORK_DIR/rna_header_check.txt" 2>&1
+if [ $? -eq 0 ]; then
+    pass "homer2meme ACGU header/background"
+else
+    fail "homer2meme ACGU header/background" "$(cat "$WORK_DIR/rna_header_check.txt")"
 fi
 
 echo ""

@@ -103,28 +103,5 @@ impl Motif {
         Ok(())
     }
 
-    pub fn print_homer(&self, bg: f64, t_offset: f64) {
-        let score = self.calculate_score(bg, t_offset);
-        println!(">{}\t{}\t{:.6}\t0\t0\t0", self.id, self.description, score);
-        for row in &self.matrix {
-            let line: Vec<String> = row.iter().map(|v| format!("{:.6}", v)).collect();
-            println!("{}", line.join("\t"));
-        }
-    }
-
-    pub fn print_meme_motif(&self) {
-        let expected_cols = if self.alphabet == "PROTEIN" { 20 } else { 4 };
-        let width = self.matrix.len();
-        println!("MOTIF {} {}", self.id, self.description);
-        println!();
-        println!(
-            "letter-probability matrix: alength= {} w= {} nsites= 20 E= 0",
-            expected_cols, width
-        );
-        for row in &self.matrix {
-            let line: Vec<String> = row.iter().map(|v| format!("{:.6}", v)).collect();
-            println!("  {}", line.join("  "));
-        }
-        println!();
-    }
+    // Direct-print helpers removed; use io::write_homer/write_meme for output.
 }

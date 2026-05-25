@@ -9,6 +9,34 @@ pub enum MatrixType {
     Probability,
 }
 
+fn alphabet_letters(alphabet: &str) -> &str {
+    match alphabet {
+        "ACGT" => "ACGT",
+        "ACGU" => "ACGU",
+        "PROTEIN" => "ACDEFGHIKLMNPQRSTVWY",
+        other => other,
+    }
+}
+
+fn background_line(alphabet: &str) -> String {
+    let letters = alphabet_letters(alphabet);
+    let count = letters.chars().count();
+    if count == 0 {
+        return String::new();
+    }
+    let freq = 1.0_f64 / count as f64;
+    let mut parts = Vec::with_capacity(count);
+    for ch in letters.chars() {
+        let formatted = if count == 4 || count == 20 {
+            format!("{:.2}", freq)
+        } else {
+            format!("{:.6}", freq)
+        };
+        parts.push(format!("{ch} {formatted}"));
+    }
+    parts.join(" ")
+}
+
 pub fn is_logodds(row: &[f64], matrix_type: MatrixType) -> bool {
     match matrix_type {
         MatrixType::Logodds => true,
@@ -20,19 +48,14 @@ pub fn is_logodds(row: &[f64], matrix_type: MatrixType) -> bool {
     }
 }
 
-pub fn logodds_to_prob(row: &[f64], pseudocount: f64) -> Vec<f64> {
-    let background = 0.25;
+pub fn logodds_to_prob(row: &[f64], pseudocount: f64, background: f64) -> Vec<f64> {
     let raw: Vec<f64> = row.iter().map(|&v| 2.0_f64.powf(v) * background).collect();
     let total: f64 = raw.iter().sum::<f64>() + pseudocount * raw.len() as f64;
     raw.into_iter().map(|v| (v + pseudocount) / total).collect()
 }
 
-fn escape_json(s: &str) -> String {
-    s.replace('\\', "\\\\")
-        .replace('"', "\\\"")
-        .replace('\n', "\\n")
-        .replace('\r', "\\r")
-        .replace('\t', "\\t")
+fn json_string(value: &str) -> String {
+    serde_json::to_string(value).unwrap_or_else(|_| format!("{:?}", value))
 }
 
 pub fn read_meme<R: BufRead>(reader: R, alphabet_arg: &str) -> Result<Vec<Motif>, MotifError> {
@@ -43,11 +66,7 @@ pub fn read_meme<R: BufRead>(reader: R, alphabet_arg: &str) -> Result<Vec<Motif>
     let mut matrix: Vec<Vec<f64>> = Vec::new();
     let mut motifs = Vec::new();
 
-    let mut expected_cols = match alphabet_arg {
-        "ACGT" | "ACGU" => 4,
-        "PROTEIN" => 20,
-        other => other.len(),
-    };
+    let mut expected_cols = alphabet_letters(alphabet_arg).chars().count();
 
     for line_result in reader.lines() {
         let line = line_result?;
@@ -123,7 +142,7 @@ pub fn read_meme<R: BufRead>(reader: R, alphabet_arg: &str) -> Result<Vec<Motif>
 
         if in_matrix {
             let first = trimmed.chars().next();
-            if !matches!(first, Some('0'..='9') | Some('.')) {
+            if !matches!(first, Some('0'..='9') | Some('.') | Some('-')) {
                 continue;
             }
             let row: Result<Vec<f64>, _> = trimmed
@@ -132,6 +151,12 @@ pub fn read_meme<R: BufRead>(reader: R, alphabet_arg: &str) -> Result<Vec<Motif>
                 .collect();
             if let Ok(values) = row {
                 if values.len() == expected_cols {
+                    if values.iter().any(|v| *v < 0.0) {
+                        eprintln!(
+                            "Warning: negative value in matrix row (expected probabilities): {}",
+                            trimmed
+                        );
+                    }
                     matrix.push(values);
                 }
             }
@@ -154,6 +179,8 @@ pub fn read_homer<R: BufRead>(
     reader: R,
     pseudocount: f64,
     matrix_type: MatrixType,
+    alphabet: &str,
+    background: f64,
 ) -> Result<Vec<Motif>, MotifError> {
     let mut in_motif = false;
     let mut motif_id = String::new();
@@ -175,7 +202,7 @@ pub fn read_homer<R: BufRead>(
                     motif_id.clone(),
                     description.clone(),
                     std::mem::take(&mut matrix),
-                    "ACGT".to_string(),
+                    alphabet.to_string(),
                 ));
             }
             matrix.clear();
@@ -205,11 +232,12 @@ pub fn read_homer<R: BufRead>(
             .collect();
         if let Ok(mut row) = row_result {
             if !row.is_empty() {
-                if row.len() != 4 {
+                let expected_cols = alphabet_letters(alphabet).chars().count();
+                if row.len() != expected_cols {
                     continue; // Skip malformed
                 }
                 if is_logodds(&row, matrix_type) {
-                    row = logodds_to_prob(&row, pseudocount);
+                    row = logodds_to_prob(&row, pseudocount, background);
                 }
                 matrix.push(row);
             }
@@ -221,14 +249,19 @@ pub fn read_homer<R: BufRead>(
             motif_id,
             description,
             matrix,
-            "ACGT".to_string(),
+            alphabet.to_string(),
         ));
     }
 
     Ok(motifs)
 }
 
-pub fn read_json<R: BufRead>(mut reader: R, pseudocount: f64) -> Result<Vec<Motif>, MotifError> {
+pub fn read_json<R: BufRead>(
+    mut reader: R,
+    pseudocount: f64,
+    matrix_type: MatrixType,
+    background: f64,
+) -> Result<Vec<Motif>, MotifError> {
     let mut content = String::new();
     reader.read_to_string(&mut content)?;
 
@@ -254,15 +287,16 @@ pub fn read_json<R: BufRead>(mut reader: R, pseudocount: f64) -> Result<Vec<Moti
             let matrix = matrix.unwrap();
 
             let mut processed: Vec<Vec<f64>> = Vec::new();
+            let expected_cols = alphabet_letters(alphabet).chars().count();
             for row in matrix {
                 if let Some(arr) = row.as_array() {
-                    if arr.len() != 4 {
+                    if arr.len() != expected_cols {
                         continue;
                     }
                     let vals: Vec<f64> = arr.iter().filter_map(|v| v.as_f64()).collect();
-                    if vals.len() == 4 {
-                        if is_logodds(&vals, MatrixType::Auto) {
-                            processed.push(logodds_to_prob(&vals, pseudocount));
+                    if vals.len() == expected_cols {
+                        if is_logodds(&vals, matrix_type) {
+                            processed.push(logodds_to_prob(&vals, pseudocount, background));
                         } else {
                             processed.push(vals);
                         }
@@ -313,11 +347,11 @@ pub fn write_meme<W: Write>(writer: &mut W, motifs: &[Motif]) -> Result<(), Moti
             writeln!(writer, "ALPHABET= {}\n", motif.alphabet)?;
             writeln!(writer, "strands: + -\n")?;
             writeln!(writer, "Background letter frequencies")?;
-            writeln!(writer, "A 0.25 C 0.25 G 0.25 T 0.25\n")?;
+            writeln!(writer, "{}\n", background_line(&motif.alphabet))?;
             header_printed = true;
         }
 
-        let expected_cols = if motif.alphabet == "PROTEIN" { 20 } else { 4 };
+        let expected_cols = alphabet_letters(&motif.alphabet).chars().count();
         let width = motif.matrix.len();
         writeln!(writer, "MOTIF {} {}", motif.id, motif.description)?;
         writeln!(writer)?;
@@ -342,22 +376,22 @@ pub fn write_json<W: Write>(writer: &mut W, motifs: &[Motif]) -> Result<(), Moti
     writeln!(writer, "  \"motifs\": [")?;
     for (mi, motif) in motifs.iter().enumerate() {
         writeln!(writer, "    {{")?;
-        writeln!(writer, "      \"id\": \"{}\",", escape_json(&motif.id))?;
+        writeln!(writer, "      \"id\": {},", json_string(&motif.id))?;
         writeln!(
             writer,
-            "      \"description\": \"{}\",",
-            escape_json(&motif.description)
+            "      \"description\": {},",
+            json_string(&motif.description)
         )?;
         if !motif.alphabet.is_empty() {
             writeln!(
                 writer,
-                "      \"alphabet\": \"{}\",",
-                escape_json(&motif.alphabet)
+                "      \"alphabet\": {},",
+                json_string(&motif.alphabet)
             )?;
         }
         writeln!(writer, "      \"matrix\": [")?;
         for (ri, row) in motif.matrix.iter().enumerate() {
-            let vals: Vec<String> = row.iter().map(|v| format!("{}", v)).collect();
+            let vals: Vec<String> = row.iter().map(|v| format!("{:.6}", v)).collect();
             if ri + 1 < motif.matrix.len() {
                 writeln!(writer, "        [{}],", vals.join(", "))?;
             } else {

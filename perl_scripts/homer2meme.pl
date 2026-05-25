@@ -7,19 +7,23 @@ use IO::Uncompress::Gunzip qw($GunzipError);
 my $input       = '';
 my $extract     = '';
 my $pseudocount = 0.01;
+my $background  = 0.25;
 my $input_fmt   = 'homer';
 my $matrix_type = 'auto';
 my $do_rc       = 0;
 my $trim_edges  = 0;
 my $min_ic      = 0;
+my $alphabet    = 'ACGT';
 
 GetOptions(
     'i=s' => \$input,
     'e=s' => \$extract,
     'a=f' => \$pseudocount,
+    'b=f' => \$background,
     'f=s' => \$input_fmt,
     'format=s' => \$input_fmt,
     'input-format=s' => \$matrix_type,
+    'alphabet=s' => \$alphabet,
     'rc'    => \$do_rc,
     'trim-edges=f' => \$trim_edges,
     'min-ic=f' => \$min_ic,
@@ -28,8 +32,30 @@ GetOptions(
 
 usage() unless $input;
 die "Error: -a must be > 0.\n" unless $pseudocount > 0;
+die "Error: -b must be in (0, 1].\n" unless $background > 0 && $background <= 1;
 die "Error: unknown format: $input_fmt\n" unless $input_fmt eq 'homer' || $input_fmt eq 'json';
 die "Error: unknown input-format: $matrix_type\n" unless $matrix_type eq 'auto' || $matrix_type eq 'logodds' || $matrix_type eq 'probability';
+die "Error: unknown alphabet: $alphabet\n" unless $alphabet =~ /^(ACGT|ACGU|PROTEIN)$/;
+
+my %ALPHABETS = (
+    'ACGT' => 'ACGT',
+    'ACGU' => 'ACGU',
+    'PROTEIN' => 'ACDEFGHIKLMNPQRSTVWY'
+);
+my $expected_cols = length($ALPHABETS{$alphabet} || $alphabet);
+
+my %config = (
+    extract => $extract,
+    pseudocount => $pseudocount,
+    background => $background,
+    input_fmt => $input_fmt,
+    matrix_type => $matrix_type,
+    do_rc => $do_rc,
+    trim_edges => $trim_edges,
+    min_ic => $min_ic,
+    alphabet => $alphabet,
+    expected_cols => $expected_cols,
+);
 
 my $fh;
 if ($input eq '-') {
@@ -42,9 +68,9 @@ if ($input eq '-') {
 }
 
 if ($input_fmt eq 'json') {
-    parse_and_convert_json($fh);
+    parse_and_convert_json($fh, \%config);
 } else {
-    parse_and_convert_homer($fh);
+    parse_and_convert_homer($fh, \%config);
 }
 
 if ($input ne '-') {
@@ -58,7 +84,7 @@ if ($input ne '-') {
 # ---------------------------------------------------------------------------
 
 sub is_logodds {
-    my ($row_ref) = @_;
+    my ($row_ref, $matrix_type) = @_;
     return 1 if $matrix_type eq 'logodds';
     return 0 if $matrix_type eq 'probability';
     my $sum = 0;
@@ -67,9 +93,8 @@ sub is_logodds {
 }
 
 sub logodds_to_prob {
-    my ($row_ref, $pc) = @_;
-    my $background = 0.25;
-    my @raw = map { 2 ** $_ * $background } @$row_ref;
+    my ($row_ref, $pc, $bg) = @_;
+    my @raw = map { 2 ** $_ * $bg } @$row_ref;
     my $total = $pc * scalar(@raw);
     $total += $_ for @raw;
     return map { ($_ + $pc) / $total } @raw;
@@ -129,49 +154,64 @@ sub trim_edges {
 }
 
 sub process_motif {
-    my ($id, $desc, $matrix_ref, $header_ref) = @_;
+    my ($id, $desc, $matrix_ref, $header_ref, $config) = @_;
 
     my @mat = @$matrix_ref;
 
-    if ($do_rc) {
+    if ($config->{do_rc}) {
         @mat = reverse_complement(\@mat, \$id);
     }
 
-    if ($trim_edges > 0) {
-        @mat = trim_edges(\@mat, $trim_edges);
+    if ($config->{trim_edges} > 0) {
+        @mat = trim_edges(\@mat, $config->{trim_edges});
         if (!@mat) {
-            warn "Warning: motif '$id' trimmed to empty matrix (IC threshold=$trim_edges)\n";
+            warn "Warning: motif '$id' trimmed to empty matrix (IC threshold=$config->{trim_edges})\n";
             return;
         }
     }
 
-    if ($min_ic > 0 && total_ic(\@mat) < $min_ic) {
+    if ($config->{min_ic} > 0 && total_ic(\@mat) < $config->{min_ic}) {
         return;
     }
 
-    print_meme_header() unless $$header_ref;
+    print_meme_header($config->{alphabet}) unless $$header_ref;
     $$header_ref = 1;
-    print_meme_motif($id, $desc, \@mat);
+    print_meme_motif($id, $desc, \@mat, $config->{expected_cols});
+}
+
+sub background_line {
+    my ($alphabet) = @_;
+    my $letters = $ALPHABETS{$alphabet} || $alphabet;
+    return '' unless length($letters);
+    my $count = length($letters);
+    my $freq = 1 / $count;
+    my $fmt = ($count == 4 || $count == 20) ? "%.2f" : "%.6f";
+    my @parts;
+    foreach my $ch (split //, $letters) {
+        push @parts, sprintf("%s $fmt", $ch, $freq);
+    }
+    return join(" ", @parts);
 }
 
 sub print_meme_header {
+    my ($alphabet) = @_;
     print "MEME version 4\n";
     print "\n";
-    print "ALPHABET= ACGT\n";
+    print "ALPHABET= $alphabet\n";
     print "\n";
     print "strands: + -\n";
     print "\n";
     print "Background letter frequencies\n";
-    print "A 0.25 C 0.25 G 0.25 T 0.25\n";
+    print background_line($alphabet) . "\n";
     print "\n";
 }
 
 sub print_meme_motif {
-    my ($id, $desc, $matrix_ref) = @_;
+    my ($id, $desc, $matrix_ref, $expected_cols) = @_;
     my $width = scalar @$matrix_ref;
     print "MOTIF $id $desc\n";
     print "\n";
-    print "letter-probability matrix: alength= 4 w= $width nsites= 20 E= 0\n";
+    print "letter-probability matrix: alength= $expected_cols w= $width nsites= 20 E= 0\n";
     foreach my $row (@$matrix_ref) {
         print "  " . join("  ", map { sprintf("%.6f", $_) } @$row) . "\n";
     }
@@ -179,12 +219,16 @@ sub print_meme_motif {
 }
 
 sub parse_and_convert_homer {
-    my ($fh) = @_;
+    my ($fh, $config) = @_;
     my $header_printed = 0;
     my $in_motif = 0;
     my $motif_id = '';
     my $description = '';
     my @matrix;
+    my $extract = $config->{extract};
+    my $pseudocount = $config->{pseudocount};
+    my $background = $config->{background};
+    my $matrix_type = $config->{matrix_type};
 
     while (<$fh>) {
         chomp;
@@ -194,7 +238,7 @@ sub parse_and_convert_homer {
             my $rest = $1;
 
             if ($in_motif && @matrix) {
-                process_motif($motif_id, $description, \@matrix, \$header_printed);
+                process_motif($motif_id, $description, \@matrix, \$header_printed, $config);
             }
             @matrix = ();
 
@@ -226,25 +270,25 @@ sub parse_and_convert_homer {
         next unless $all_numeric && @tokens;
 
         my @row = map { $_ + 0 } @tokens;
-        if (scalar(@row) != 4) {
-            warn "Warning: skipping malformed matrix row (expected 4 cols, got "
+        if (scalar(@row) != $expected_cols) {
+            warn "Warning: skipping malformed matrix row (expected $expected_cols cols, got "
                  . scalar(@row) . "): $_\n";
             next;
         }
 
-        if (is_logodds(\@row)) {
-            @row = logodds_to_prob(\@row, $pseudocount);
+        if (is_logodds(\@row, $matrix_type)) {
+            @row = logodds_to_prob(\@row, $pseudocount, $background);
         }
         push @matrix, \@row;
     }
 
     if ($in_motif && @matrix) {
-        process_motif($motif_id, $description, \@matrix, \$header_printed);
+        process_motif($motif_id, $description, \@matrix, \$header_printed, $config);
     }
 }
 
 sub parse_and_convert_json {
-    my ($fh) = @_;
+    my ($fh, $config) = @_;
     my $content = '';
     while (<$fh>) {
         $content .= $_;
@@ -258,26 +302,42 @@ sub parse_and_convert_json {
 
     my $header_printed = 0;
     my @motifs;
+    my $extract = $config->{extract};
+    my $expected_cols = $config->{expected_cols};
+    my $pseudocount = $config->{pseudocount};
+    my $background = $config->{background};
+    my $matrix_type = $config->{matrix_type};
+
     if (ref $data eq 'HASH' && ref $data->{motifs} eq 'ARRAY') {
         for my $m (@{$data->{motifs}}) {
             my $id = $m->{id} || 'motif';
             my $desc = $m->{description} || $id;
+            my $motif_alphabet = $m->{alphabet} || $config->{alphabet};
+            if ($header_printed && $motif_alphabet ne $config->{alphabet}) {
+                warn "Warning: skipping motif '$id' with alphabet $motif_alphabet (header uses $config->{alphabet})\n";
+                next;
+            }
+            if (!$header_printed && $motif_alphabet ne $config->{alphabet}) {
+                $config->{alphabet} = $motif_alphabet;
+                $config->{expected_cols} = length($ALPHABETS{$motif_alphabet} || $motif_alphabet);
+            }
 
             if ($extract && $id ne $extract && $desc ne $extract) {
                 next;
             }
 
+            my $expected_cols = $config->{expected_cols};
             my @matrix;
             if (ref $m->{matrix} eq 'ARRAY') {
                 for my $row (@{$m->{matrix}}) {
-                    if (ref $row eq 'ARRAY' && scalar(@$row) == 4) {
+                    if (ref $row eq 'ARRAY' && scalar(@$row) == $expected_cols) {
                         my @vals = map { $_ + 0 } @$row;
-                        if (is_logodds(\@vals)) {
-                            @vals = logodds_to_prob(\@vals, $pseudocount);
+                        if (is_logodds(\@vals, $matrix_type)) {
+                            @vals = logodds_to_prob(\@vals, $pseudocount, $background);
                         }
                         push @matrix, \@vals;
                     } else {
-                        warn "Warning: skipping malformed matrix row (expected 4 cols)\n";
+                        warn "Warning: skipping malformed matrix row (expected $expected_cols cols)\n";
                     }
                 }
             }
@@ -290,7 +350,7 @@ sub parse_and_convert_json {
 
     if (@motifs) {
         for my $m (@motifs) {
-            process_motif($m->{id}, $m->{desc}, $m->{matrix}, \$header_printed);
+            process_motif($m->{id}, $m->{desc}, $m->{matrix}, \$header_printed, $config);
         }
     }
 }
@@ -305,8 +365,10 @@ Options:
     -i <file>   Input HOMER motif file (or '-' for stdin, supports .gz)
     -e <string> Extract only specified motif by id or description
     -a <float>  Pseudocount for log-odds to probability conversion (default: 0.01)
+    -b <float>  Background probability for log-odds conversion (default: 0.25)
     -f, --format <fmt>  Input format: homer (default) or json
     --input-format <fmt>  Matrix type: auto (default), logodds, or probability
+    --alphabet <str> Alphabet: ACGT (default), ACGU, or PROTEIN
     --rc                Output the reverse complement of the motif (DNA/RNA only)
     --trim-edges <float> Trim edges with information content below threshold
     --min-ic <float>    Filter out motifs with total information content below threshold

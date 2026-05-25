@@ -16,16 +16,7 @@ import argparse
 import gzip
 import sys
 
-try:
-    from motif_bridge.io import read_meme, write_homer, write_json
-except ImportError:
-    import os
-
-    # Add project root to sys.path
-    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    if root not in sys.path:
-        sys.path.insert(0, root)
-    from motif_bridge.io import read_meme, write_homer, write_json
+from motif_bridge.io import read_meme, write_homer, write_json
 
 
 def bg_prob(value: str) -> float:

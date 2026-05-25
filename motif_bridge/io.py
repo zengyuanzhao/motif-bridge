@@ -11,9 +11,25 @@ ALPHABETS = {
     "PROTEIN": "ACDEFGHIKLMNPQRSTVWY",
 }
 
-def logodds_to_prob(row: List[float], pseudocount: float = 0.01) -> List[float]:
+def _alphabet_letters(alphabet: str) -> str:
+    return ALPHABETS.get(alphabet, alphabet)
+
+def _format_background_line(alphabet: str) -> str:
+    letters = _alphabet_letters(alphabet)
+    if not letters:
+        return ""
+    freq = 1.0 / len(letters)
+    fmt = "{:.2f}" if len(letters) in (4, 20) else "{:.6f}"
+    parts = [f"{letter} {fmt.format(freq)}" for letter in letters]
+    return " ".join(parts)
+
+def _json_string(value: str) -> str:
+    return json.dumps(value, ensure_ascii=False)
+
+def logodds_to_prob(
+    row: List[float], pseudocount: float = 0.01, background: float = 0.25
+) -> List[float]:
     """Convert a HOMER log-odds row to a probability row."""
-    background = 0.25
     raw = [2**v * background for v in row]
     total = sum(raw) + pseudocount * len(raw)
     return [(v + pseudocount) / total for v in raw]
@@ -34,7 +50,7 @@ def read_meme(fh: TextIO, alphabet: str = "ACGT") -> Iterator[Motif]:
     motif_id = ""
     description = ""
     matrix: List[List[float]] = []
-    expected_cols = len(ALPHABETS.get(alphabet, alphabet))
+    expected_cols = len(_alphabet_letters(alphabet))
 
     for raw_line in fh:
         line = raw_line.rstrip("\n")
@@ -84,11 +100,17 @@ def read_meme(fh: TextIO, alphabet: str = "ACGT") -> Iterator[Motif]:
                     pass
             continue
 
-        if in_matrix and stripped and (stripped[0].isdigit() or stripped.startswith(".")):
+        if in_matrix and stripped and (
+            stripped[0].isdigit() or stripped.startswith(".") or stripped.startswith("-")
+        ):
             tokens = stripped.split()
             try:
                 row = [float(t) for t in tokens]
                 if len(row) == expected_cols:
+                    if any(v < 0 for v in row):
+                        sys.stderr.write(
+                            f"Warning: negative value in matrix row (expected probabilities): {stripped}\n"
+                        )
                     matrix.append(row)
                 elif row:
                     sys.stderr.write(
@@ -101,7 +123,13 @@ def read_meme(fh: TextIO, alphabet: str = "ACGT") -> Iterator[Motif]:
     if in_motif and matrix:
         yield Motif(motif_id, description, matrix, alphabet)
 
-def read_homer(fh: TextIO, pseudocount: float = 0.01, input_format: str = "auto") -> Iterator[Motif]:
+def read_homer(
+    fh: TextIO,
+    pseudocount: float = 0.01,
+    input_format: str = "auto",
+    alphabet: str = "ACGT",
+    background: float = 0.25,
+) -> Iterator[Motif]:
     """Parse HOMER format from a file-like object and yield Motif instances."""
     in_motif = False
     motif_id = ""
@@ -117,7 +145,7 @@ def read_homer(fh: TextIO, pseudocount: float = 0.01, input_format: str = "auto"
 
         if stripped.startswith(">"):
             if in_motif and matrix:
-                yield Motif(motif_id, description, matrix, "ACGT")
+                yield Motif(motif_id, description, matrix, alphabet)
 
             parts = stripped[1:].split("\t")
             mid = parts[0] if len(parts) > 0 else "motif"
@@ -137,21 +165,24 @@ def read_homer(fh: TextIO, pseudocount: float = 0.01, input_format: str = "auto"
             row = [float(t) for t in tokens]
             if not row:
                 continue
-            if len(row) != 4:
+            expected_cols = len(_alphabet_letters(alphabet))
+            if len(row) != expected_cols:
                 sys.stderr.write(
-                    f"Warning: skipping malformed row (expected 4 cols, got {len(row)}): {stripped}\n"
+                    f"Warning: skipping malformed row (expected {expected_cols} cols, got {len(row)}): {stripped}\n"
                 )
                 continue
             if is_logodds_row(row, input_format):
-                row = logodds_to_prob(row, pseudocount)
+                row = logodds_to_prob(row, pseudocount, background)
             matrix.append(row)
         except ValueError:
             pass
 
     if in_motif and matrix:
-        yield Motif(motif_id, description, matrix, "ACGT")
+        yield Motif(motif_id, description, matrix, alphabet)
 
-def read_json(fh: TextIO, pseudocount: float = 0.01) -> Iterator[Motif]:
+def read_json(
+    fh: TextIO, pseudocount: float = 0.01, input_format: str = "auto", background: float = 0.25
+) -> Iterator[Motif]:
     """Parse JSON format from a file-like object and yield Motif instances."""
     data = json.load(fh)
     for motif in data.get("motifs", []):
@@ -163,15 +194,16 @@ def read_json(fh: TextIO, pseudocount: float = 0.01) -> Iterator[Motif]:
         if not matrix:
             continue
 
+        expected_cols = len(_alphabet_letters(alphabet))
         processed_matrix = []
         for row in matrix:
-            if len(row) != 4:
+            if len(row) != expected_cols:
                 sys.stderr.write(
-                    f"Warning: skipping malformed matrix row (expected 4 cols, got {len(row)})\n"
+                    f"Warning: skipping malformed matrix row (expected {expected_cols} cols, got {len(row)})\n"
                 )
                 continue
-            if is_logodds_row(row, "auto"):
-                row = logodds_to_prob(row, pseudocount)
+            if is_logodds_row(row, input_format):
+                row = logodds_to_prob(row, pseudocount, background)
             processed_matrix.append(row)
 
         if processed_matrix:
@@ -204,7 +236,7 @@ def write_meme(motifs: Iterable[Motif], fh: TextIO) -> None:
             fh.write(f"ALPHABET= {m.alphabet}\n\n")
             fh.write("strands: + -\n\n")
             fh.write("Background letter frequencies\n")
-            fh.write("A 0.25 C 0.25 G 0.25 T 0.25\n\n")
+            fh.write(_format_background_line(m.alphabet) + "\n\n")
             header_printed = True
 
         width = len(m.matrix)
@@ -217,6 +249,24 @@ def write_meme(motifs: Iterable[Motif], fh: TextIO) -> None:
 
 def write_json(motifs: Iterable[Motif], fh: TextIO) -> None:
     """Write an iterable of Motif objects to a file-like object in JSON format."""
-    motif_dicts = [m.to_dict() for m in motifs]
-    json.dump({"version": "1.0", "source": "meme", "motifs": motif_dicts}, fh, indent=2)
-    fh.write("\n")
+    motifs_list = list(motifs)
+    fh.write("{\n")
+    fh.write('  "version": "1.0",\n')
+    fh.write('  "source": "meme",\n')
+    fh.write('  "motifs": [\n')
+    for mi, motif in enumerate(motifs_list):
+        fh.write("    {\n")
+        fh.write(f'      "id": {_json_string(motif.id)},\n')
+        fh.write(f'      "description": {_json_string(motif.description)},\n')
+        if motif.alphabet:
+            fh.write(f'      "alphabet": {_json_string(motif.alphabet)},\n')
+        fh.write('      "matrix": [\n')
+        for ri, row in enumerate(motif.matrix):
+            values = ", ".join(f"{v:.6f}" for v in row)
+            suffix = "," if ri + 1 < len(motif.matrix) else ""
+            fh.write(f"        [{values}]{suffix}\n")
+        fh.write("      ]\n")
+        motif_suffix = "," if mi + 1 < len(motifs_list) else ""
+        fh.write(f"    }}{motif_suffix}\n")
+    fh.write("  ]\n")
+    fh.write("}\n")
