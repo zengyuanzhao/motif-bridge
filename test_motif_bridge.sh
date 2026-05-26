@@ -25,6 +25,7 @@
 #   12 - Motif Operations (--rc, --trim-edges, --min-ic)
 #   13 - MEME MOTIF word-boundary parsing
 #   14 - Negative matrix value warnings
+#   15 - Version and parser metadata regressions
 #
 # Exit codes:
 #   0 - all tests passed
@@ -310,7 +311,7 @@ python3 "$PYTHON/meme2homer.py" -i "$FIXTURES/test.meme" -j JASPAR2026 > "$WORK_
 python3 "$PYTHON/homer2meme.py" -i "$WORK_DIR/rt_m2h.homer" > "$WORK_DIR/rt_m2h2m.meme" 2>&1
 
 # Compare matrix values (ignore header metadata differences)
-python3 -c "
+if python3 -c "
 import sys
 def parse_meme(path):
     motifs = []
@@ -349,8 +350,7 @@ if ok:
     sys.exit(0)
 else:
     sys.exit(1)
-" > "$WORK_DIR/rt_result.txt" 2>&1
-if [ $? -eq 0 ]; then
+" > "$WORK_DIR/rt_result.txt" 2>&1; then
     pass "Round-trip meme->homer->meme matrix consistency"
 else
     fail "Round-trip meme->homer->meme matrix consistency" "$(cat "$WORK_DIR/rt_result.txt")"
@@ -361,7 +361,7 @@ python3 "$PYTHON/homer2meme.py" -i "$FIXTURES/test.homer" > "$WORK_DIR/rt_h2m.me
 python3 "$PYTHON/meme2homer.py" -i "$WORK_DIR/rt_h2m.meme" -j JASPAR2026 > "$WORK_DIR/rt_h2m2h.homer" 2>&1
 
 # Compare matrix values
-python3 -c "
+if python3 -c "
 import sys
 def parse_homer(path):
     motifs = []
@@ -394,8 +394,7 @@ if ok:
     sys.exit(0)
 else:
     sys.exit(1)
-" > "$WORK_DIR/rt_result2.txt" 2>&1
-if [ $? -eq 0 ]; then
+" > "$WORK_DIR/rt_result2.txt" 2>&1; then
     pass "Round-trip homer->meme->homer matrix consistency"
 else
     fail "Round-trip homer->meme->homer matrix consistency" "$(cat "$WORK_DIR/rt_result2.txt")"
@@ -420,7 +419,7 @@ if [ -n "$RUST_BIN" ]; then
 fi
 
 # Verify output rows sum to ~1.0 (probability)
-python3 -c "
+if python3 -c "
 import sys
 ok = True
 with open('$WORK_DIR/py_logodds.meme') as f:
@@ -443,8 +442,7 @@ if ok:
     sys.exit(0)
 else:
     sys.exit(1)
-" > "$WORK_DIR/logodds_check.txt" 2>&1
-if [ $? -eq 0 ]; then
+" > "$WORK_DIR/logodds_check.txt" 2>&1; then
     pass "Log-odds output rows sum to ~1.0"
 else
     fail "Log-odds output rows sum to ~1.0" "$(cat "$WORK_DIR/logodds_check.txt")"
@@ -473,7 +471,7 @@ if run_stage 8 "Format compliance"; then
 
 # MEME output: check header presence
 python3 "$PYTHON/homer2meme.py" -i "$FIXTURES/test.homer" > "$WORK_DIR/format_meme.meme" 2>&1
-python3 -c "
+if python3 -c "
 import sys
 with open('$WORK_DIR/format_meme.meme') as f:
     content = f.read()
@@ -496,8 +494,7 @@ if ok:
     sys.exit(0)
 else:
     sys.exit(1)
-" > "$WORK_DIR/meme_format_check.txt" 2>&1
-if [ $? -eq 0 ]; then
+" > "$WORK_DIR/meme_format_check.txt" 2>&1; then
     pass "MEME format header compliance"
 else
     fail "MEME format header compliance" "$(cat "$WORK_DIR/meme_format_check.txt")"
@@ -505,7 +502,7 @@ fi
 
 # HOMER output: check 6 tab-separated header fields and 4-column matrix rows
 python3 "$PYTHON/meme2homer.py" -i "$FIXTURES/test.meme" -j JASPAR2026 > "$WORK_DIR/format_homer.homer" 2>&1
-python3 -c "
+if python3 -c "
 import sys
 ok = True
 with open('$WORK_DIR/format_homer.homer') as f:
@@ -526,8 +523,7 @@ if ok:
     sys.exit(0)
 else:
     sys.exit(1)
-" > "$WORK_DIR/homer_format_check.txt" 2>&1
-if [ $? -eq 0 ]; then
+" > "$WORK_DIR/homer_format_check.txt" 2>&1; then
     pass "HOMER format compliance (6 header fields, 4-col matrix)"
 else
     fail "HOMER format compliance (6 header fields, 4-col matrix)" "$(cat "$WORK_DIR/homer_format_check.txt")"
@@ -556,7 +552,7 @@ if [ -n "$RUST_BIN" ]; then
     check_diff "$WORK_DIR/py_unicode.json" "$WORK_DIR/rs_unicode.json" "Python vs Rust JSON unicode"
 fi
 
-python3 -c "
+if python3 -c "
 import json, sys
 with open('$WORK_DIR/py_unicode.json', encoding='utf-8') as f:
     data = json.load(f)
@@ -566,15 +562,14 @@ if desc != 'alpha_α/JASPAR2026':
     sys.exit(1)
 print('OK')
 sys.exit(0)
-" > "$WORK_DIR/unicode_check.txt" 2>&1
-if [ $? -eq 0 ]; then
+" > "$WORK_DIR/unicode_check.txt" 2>&1; then
     pass "Unicode descriptions preserved"
 else
     fail "Unicode descriptions preserved" "$(cat "$WORK_DIR/unicode_check.txt")"
 fi
 
 # Validate JSON structure
-python3 -c "
+if python3 -c "
 import json, sys
 try:
     with open('$WORK_DIR/py_json.json') as f:
@@ -601,8 +596,7 @@ try:
 except Exception as e:
     print(f'Error: {e}')
     sys.exit(1)
-" > "$WORK_DIR/json_check.txt" 2>&1
-if [ $? -eq 0 ]; then
+" > "$WORK_DIR/json_check.txt" 2>&1; then
     pass "JSON output structure validation"
 else
     fail "JSON output structure validation" "$(cat "$WORK_DIR/json_check.txt")"
@@ -613,7 +607,7 @@ python3 "$PYTHON/meme2homer.py" -i "$FIXTURES/test.meme" -j JASPAR2026 -f json >
 python3 "$PYTHON/homer2meme.py" -i "$WORK_DIR/rt_json.json" -f json > "$WORK_DIR/rt_json_meme.meme" 2>&1
 
 # Compare matrix values between original MEME and round-trip MEME
-python3 -c "
+if python3 -c "
 import sys
 def parse_meme(path):
     motifs = []
@@ -656,8 +650,7 @@ if ok:
     sys.exit(0)
 else:
     sys.exit(1)
-" > "$WORK_DIR/json_rt_check.txt" 2>&1
-if [ $? -eq 0 ]; then
+" > "$WORK_DIR/json_rt_check.txt" 2>&1; then
     pass "JSON round-trip meme->json->meme matrix consistency"
 else
     fail "JSON round-trip meme->json->meme matrix consistency" "$(cat "$WORK_DIR/json_rt_check.txt")"
@@ -674,7 +667,7 @@ python3 "$PYTHON/homer2meme.py" -i "$WORK_DIR/json_input.json" -f json > "$WORK_
 python3 "$PYTHON/homer2meme.py" -i "$FIXTURES/test.homer" > "$WORK_DIR/direct_to_meme.meme" 2>&1
 
 # Compare matrix values
-python3 -c "
+if python3 -c "
 import sys
 def parse_meme(path):
     motifs = []
@@ -713,8 +706,7 @@ if ok:
     sys.exit(0)
 else:
     sys.exit(1)
-" > "$WORK_DIR/json_input_check.txt" 2>&1
-if [ $? -eq 0 ]; then
+" > "$WORK_DIR/json_input_check.txt" 2>&1; then
     pass "homer2meme JSON input produces correct MEME"
 else
     fail "homer2meme JSON input produces correct MEME" "$(cat "$WORK_DIR/json_input_check.txt")"
@@ -799,7 +791,7 @@ fi
 python3 "$PYTHON/meme2homer.py" -i "$FIXTURES/test_rna.meme" --alphabet ACGU -f json > "$WORK_DIR/py_rna.json" 2>&1
 perl "$PERL/meme2homer.pl" -i "$FIXTURES/test_rna.meme" --alphabet ACGU -f json > "$WORK_DIR/pl_rna.json" 2>&1
 
-python3 -c "
+if python3 -c "
 import json, sys
 with open('$WORK_DIR/py_rna.json') as f:
     py = json.load(f)
@@ -810,8 +802,7 @@ if py['motifs'][0].get('alphabet') != 'ACGU' or pl['motifs'][0].get('alphabet') 
     sys.exit(1)
 print('OK')
 sys.exit(0)
-" > "$WORK_DIR/json_alphabet_diff_pl.txt" 2>&1
-if [ $? -eq 0 ]; then
+" > "$WORK_DIR/json_alphabet_diff_pl.txt" 2>&1; then
     pass "Python vs Perl JSON --alphabet ACGU"
 else
     fail "Python vs Perl JSON --alphabet ACGU" "$(cat "$WORK_DIR/json_alphabet_diff_pl.txt")"
@@ -819,7 +810,7 @@ fi
 
 if [ -n "$RUST_BIN" ]; then
     "$RUST_BIN/meme2homer" -i "$FIXTURES/test_rna.meme" --alphabet ACGU -f json > "$WORK_DIR/rs_rna.json" 2>&1
-    python3 -c "
+    if python3 -c "
 import json, sys
 with open('$WORK_DIR/py_rna.json') as f:
     py = json.load(f)
@@ -830,8 +821,7 @@ if py['motifs'][0].get('alphabet') != 'ACGU' or rs['motifs'][0].get('alphabet') 
     sys.exit(1)
 print('OK')
 sys.exit(0)
-" > "$WORK_DIR/json_alphabet_diff_rs.txt" 2>&1
-    if [ $? -eq 0 ]; then
+" > "$WORK_DIR/json_alphabet_diff_rs.txt" 2>&1; then
         pass "Python vs Rust JSON --alphabet ACGU"
     else
         fail "Python vs Rust JSON --alphabet ACGU" "$(cat "$WORK_DIR/json_alphabet_diff_rs.txt")"
@@ -848,7 +838,7 @@ if [ -n "$RUST_BIN" ]; then
     check_diff "$WORK_DIR/py_rna_auto.json" "$WORK_DIR/rs_rna_auto.json" "Python vs Rust auto-detect ALPHABET"
 fi
 
-python3 -c "
+if python3 -c "
 import json, sys
 with open('$WORK_DIR/py_rna_auto.json') as f:
     py = json.load(f)
@@ -857,8 +847,7 @@ if py['motifs'][0].get('alphabet') != 'ACGU':
     sys.exit(1)
 print('OK')
 sys.exit(0)
-" > "$WORK_DIR/json_alphabet_auto.txt" 2>&1
-if [ $? -eq 0 ]; then
+" > "$WORK_DIR/json_alphabet_auto.txt" 2>&1; then
     pass "meme2homer auto-detects ALPHABET"
 else
     fail "meme2homer auto-detects ALPHABET" "$(cat "$WORK_DIR/json_alphabet_auto.txt")"
@@ -874,7 +863,7 @@ if [ -n "$RUST_BIN" ]; then
     check_diff "$WORK_DIR/py_rna_back.meme" "$WORK_DIR/rs_rna_back.meme" "Python vs Rust homer2meme --alphabet ACGU"
 fi
 
-python3 -c "
+if python3 -c "
 import sys
 lines = [l.strip() for l in open('$WORK_DIR/py_rna_back.meme')]
 alphabet = next((l for l in lines if l.startswith('ALPHABET=')), '')
@@ -892,8 +881,7 @@ if 'U 0.25' not in bg or 'T ' in bg:
     sys.exit(1)
 print('OK')
 sys.exit(0)
-" > "$WORK_DIR/rna_header_check.txt" 2>&1
-if [ $? -eq 0 ]; then
+" > "$WORK_DIR/rna_header_check.txt" 2>&1; then
     pass "homer2meme ACGU header/background"
 else
     fail "homer2meme ACGU header/background" "$(cat "$WORK_DIR/rna_header_check.txt")"
@@ -919,7 +907,7 @@ if [ -n "$RUST_BIN" ]; then
 fi
 
 # Verify RC matrix is actually reversed and columns swapped
-python3 -c "
+if python3 -c "
 import sys
 with open('$WORK_DIR/py_rc.homer') as f:
     content = f.read()
@@ -955,8 +943,7 @@ if orig_rows != rc_rows:
     sys.exit(1)
 print('OK')
 sys.exit(0)
-" > "$WORK_DIR/rc_check.txt" 2>&1
-if [ $? -eq 0 ]; then
+" > "$WORK_DIR/rc_check.txt" 2>&1; then
     pass "Reverse complement matrix correctness"
 else
     fail "Reverse complement matrix correctness" "$(cat "$WORK_DIR/rc_check.txt")"
@@ -983,7 +970,7 @@ if [ -n "$RUST_BIN" ]; then
 fi
 
 # Verify --min-ic filters out all motifs (threshold too high)
-python3 -c "
+if python3 -c "
 import sys
 with open('$WORK_DIR/py_minic.homer') as f:
     content = f.read()
@@ -992,8 +979,7 @@ if content.strip() != '':
     sys.exit(1)
 print('OK')
 sys.exit(0)
-" > "$WORK_DIR/minic_check.txt" 2>&1
-if [ $? -eq 0 ]; then
+" > "$WORK_DIR/minic_check.txt" 2>&1; then
     pass "--min-ic filters motifs correctly"
 else
     fail "--min-ic filters motifs correctly" "$(cat "$WORK_DIR/minic_check.txt")"
@@ -1116,6 +1102,115 @@ if [ -n "$RUST_BIN" ]; then
         pass "Rust warns on negative values"
     else
         fail "Rust warns on negative values" "$(cat "$WORK_DIR/rs_neg.err")"
+    fi
+fi
+
+echo ""
+fi
+
+# ---------------------------------------------------------------------------
+# Test 15: Version and parser metadata regressions
+# ---------------------------------------------------------------------------
+
+if run_stage 15 "Version and parser metadata regressions"; then
+
+if python3 "$PYTHON/meme2homer.py" --version > "$WORK_DIR/py_m2h_version.txt" 2>&1 \
+    && grep -q "0.2.0" "$WORK_DIR/py_m2h_version.txt"; then
+    pass "Python meme2homer --version"
+else
+    fail "Python meme2homer --version" "$(cat "$WORK_DIR/py_m2h_version.txt" 2>/dev/null || true)"
+fi
+
+if python3 "$PYTHON/homer2meme.py" --version > "$WORK_DIR/py_h2m_version.txt" 2>&1 \
+    && grep -q "0.2.0" "$WORK_DIR/py_h2m_version.txt"; then
+    pass "Python homer2meme --version"
+else
+    fail "Python homer2meme --version" "$(cat "$WORK_DIR/py_h2m_version.txt" 2>/dev/null || true)"
+fi
+
+if perl "$PERL/meme2homer.pl" --version > "$WORK_DIR/pl_m2h_version.txt" 2>&1 \
+    && grep -q "0.2.0" "$WORK_DIR/pl_m2h_version.txt"; then
+    pass "Perl meme2homer --version"
+else
+    fail "Perl meme2homer --version" "$(cat "$WORK_DIR/pl_m2h_version.txt" 2>/dev/null || true)"
+fi
+
+if perl "$PERL/homer2meme.pl" --version > "$WORK_DIR/pl_h2m_version.txt" 2>&1 \
+    && grep -q "0.2.0" "$WORK_DIR/pl_h2m_version.txt"; then
+    pass "Perl homer2meme --version"
+else
+    fail "Perl homer2meme --version" "$(cat "$WORK_DIR/pl_h2m_version.txt" 2>/dev/null || true)"
+fi
+
+if perl -MExtUtils::MM_Unix -e "exit(ExtUtils::MM_Unix->parse_version('$SCRIPT_DIR/perl_scripts/meme2homer.pl') eq '0.2.0' ? 0 : 1)" > "$WORK_DIR/pl_version_from.txt" 2>&1; then
+    pass "Makefile.PL VERSION_FROM target parses"
+else
+    fail "Makefile.PL VERSION_FROM target parses" "$(cat "$WORK_DIR/pl_version_from.txt")"
+fi
+
+if [ -n "$RUST_BIN" ]; then
+    if "$RUST_BIN/meme2homer" --version > "$WORK_DIR/rs_m2h_version.txt" 2>&1 \
+        && grep -q "0.2.0" "$WORK_DIR/rs_m2h_version.txt"; then
+        pass "Rust meme2homer --version"
+    else
+        fail "Rust meme2homer --version" "$(cat "$WORK_DIR/rs_m2h_version.txt" 2>/dev/null || true)"
+    fi
+
+    if "$RUST_BIN/homer2meme" --version > "$WORK_DIR/rs_h2m_version.txt" 2>&1 \
+        && grep -q "0.2.0" "$WORK_DIR/rs_h2m_version.txt"; then
+        pass "Rust homer2meme --version"
+    else
+        fail "Rust homer2meme --version" "$(cat "$WORK_DIR/rs_h2m_version.txt" 2>/dev/null || true)"
+    fi
+fi
+
+cat > "$WORK_DIR/protein_bad_alength.meme" <<'EOF'
+MEME version 4
+
+ALPHABET= PROTEIN
+
+Background letter frequencies
+A 0.05 C 0.05 D 0.05 E 0.05 F 0.05 G 0.05 H 0.05 I 0.05 K 0.05 L 0.05 M 0.05 N 0.05 P 0.05 Q 0.05 R 0.05 S 0.05 T 0.05 V 0.05 W 0.05 Y 0.05
+
+MOTIF P0001 protein_motif
+
+letter-probability matrix: alength= 4 w= 2 nsites= 20 E= 0
+  0.05  0.05  0.05  0.05  0.05  0.05  0.05  0.05  0.05  0.05  0.05  0.05  0.05  0.05  0.05  0.05  0.05  0.05  0.05  0.05
+  0.10  0.05  0.05  0.05  0.05  0.05  0.05  0.05  0.05  0.05  0.05  0.05  0.05  0.05  0.05  0.05  0.05  0.05  0.00  0.05
+
+//
+EOF
+
+python3 "$PYTHON/meme2homer.py" -i "$WORK_DIR/protein_bad_alength.meme" -f json > "$WORK_DIR/py_bad_alength.json" 2> "$WORK_DIR/py_bad_alength.err"
+perl "$PERL/meme2homer.pl" -i "$WORK_DIR/protein_bad_alength.meme" -f json > "$WORK_DIR/pl_bad_alength.json" 2> "$WORK_DIR/pl_bad_alength.err"
+check_diff "$WORK_DIR/py_bad_alength.json" "$WORK_DIR/pl_bad_alength.json" "Python vs Perl alength conflict"
+
+if grep -q "alength=4 conflicts with alphabet PROTEIN" "$WORK_DIR/py_bad_alength.err"; then
+    pass "Python warns on alength conflict"
+else
+    fail "Python warns on alength conflict" "$(cat "$WORK_DIR/py_bad_alength.err")"
+fi
+
+if grep -q "alength=4 conflicts with alphabet PROTEIN" "$WORK_DIR/pl_bad_alength.err"; then
+    pass "Perl warns on alength conflict"
+else
+    fail "Perl warns on alength conflict" "$(cat "$WORK_DIR/pl_bad_alength.err")"
+fi
+
+if grep -q '"alphabet": "PROTEIN"' "$WORK_DIR/py_bad_alength.json"; then
+    pass "Python keeps alphabet-derived PROTEIN rows"
+else
+    fail "Python keeps alphabet-derived PROTEIN rows" "$(cat "$WORK_DIR/py_bad_alength.json")"
+fi
+
+if [ -n "$RUST_BIN" ]; then
+    "$RUST_BIN/meme2homer" -i "$WORK_DIR/protein_bad_alength.meme" -f json > "$WORK_DIR/rs_bad_alength.json" 2> "$WORK_DIR/rs_bad_alength.err"
+    check_diff "$WORK_DIR/py_bad_alength.json" "$WORK_DIR/rs_bad_alength.json" "Python vs Rust alength conflict"
+
+    if grep -q "alength=4 conflicts with alphabet PROTEIN" "$WORK_DIR/rs_bad_alength.err"; then
+        pass "Rust warns on alength conflict"
+    else
+        fail "Rust warns on alength conflict" "$(cat "$WORK_DIR/rs_bad_alength.err")"
     fi
 fi
 

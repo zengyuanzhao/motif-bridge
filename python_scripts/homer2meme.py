@@ -18,6 +18,7 @@ import argparse
 import gzip
 import sys
 
+from motif_bridge import __version__
 from motif_bridge.io import read_homer, read_json, write_meme
 
 
@@ -122,6 +123,7 @@ def parse_args() -> argparse.Namespace:
         default=0.0,
         help="Filter out motifs with total information content below threshold.",
     )
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     return parser.parse_args()
 
 

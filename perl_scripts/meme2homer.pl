@@ -4,6 +4,8 @@ use warnings;
 use Getopt::Long;
 use IO::Uncompress::Gunzip qw($GunzipError);
 
+our $VERSION = '0.2.0';
+
 my $input       = '';
 my $db          = 'NA';
 my $motif_name  = '';
@@ -15,6 +17,7 @@ my $alphabet    = '';
 my $do_rc       = 0;
 my $trim_edges  = 0;
 my $min_ic      = 0;
+my $show_version = 0;
 
 GetOptions(
     'i=s' => \$input,
@@ -29,8 +32,14 @@ GetOptions(
     'rc'    => \$do_rc,
     'trim-edges=f' => \$trim_edges,
     'min-ic=f' => \$min_ic,
+    'version' => \$show_version,
     'h'   => sub { usage() },
 ) or usage();
+
+if ($show_version) {
+    print "meme2homer $VERSION\n";
+    exit 0;
+}
 
 usage() unless $input;
 die "Error: -b must be in (0, 1].\n" unless $bg > 0 && $bg <= 1;
@@ -44,6 +53,7 @@ my %ALPHABETS = (
     'ACGU' => 'ACGU',
     'PROTEIN' => 'ACDEFGHIKLMNPQRSTVWY'
 );
+my $effective_alphabet = $alphabet_override ? $alphabet : 'ACGT';
 my %config = (
     db => $db,
     motif_name => $motif_name,
@@ -51,11 +61,11 @@ my %config = (
     bg => $bg,
     t_offset => $t_offset,
     output_fmt => $output_fmt,
-    alphabet => $alphabet_override ? $alphabet : 'ACGT',
+    alphabet => $effective_alphabet,
     do_rc => $do_rc,
     trim_edges => $trim_edges,
     min_ic => $min_ic,
-    expected_cols => length($ALPHABETS{$alphabet_override ? $alphabet : 'ACGT'} || ($alphabet_override ? $alphabet : 'ACGT')),
+    expected_cols => length($ALPHABETS{$effective_alphabet} || $effective_alphabet),
 );
 
 die "Error: unknown format: $output_fmt\n" unless $output_fmt eq 'homer' || $output_fmt eq 'json';
@@ -71,6 +81,7 @@ if ($input eq '-') {
 }
 binmode($fh, ':encoding(UTF-8)');
 binmode(STDOUT, ':encoding(UTF-8)');
+binmode(STDERR, ':encoding(UTF-8)');
 
 my $in_motif  = 0;
 my $in_matrix = 0;
@@ -125,7 +136,13 @@ while (<$fh>) {
     if (/^letter-probability matrix:/) {
         $in_matrix = 1;
         if (/alength=\s*(\d+)/) {
-            $config{expected_cols} = $1;
+            my $alength = $1;
+            if ($alength != $config{expected_cols}) {
+                warn "Warning: alength=$alength conflicts with alphabet $config{alphabet} "
+                   . "(expected $config{expected_cols} cols); using alphabet-derived width\n";
+            } else {
+                $config{expected_cols} = $alength;
+            }
         }
         next;
     }
@@ -349,6 +366,7 @@ Options:
     -t <float>   Threshold offset in log2 bits (default: 4)
     -f, --format <fmt>  Output format: homer (default) or json
     --alphabet <str> Alphabet override: ACGT (DNA), ACGU (RNA), or PROTEIN
+    --version        Show version and exit
     --rc                Output the reverse complement of the motif (DNA/RNA only)
     --trim-edges <float> Trim edges with information content below threshold
     --min-ic <float>    Filter out motifs with total information content below threshold

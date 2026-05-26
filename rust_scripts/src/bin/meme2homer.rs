@@ -23,6 +23,7 @@ use std::io::{self, BufRead, BufReader, BufWriter};
 #[command(
     name = "meme2homer",
     about = "Convert MEME format to HOMER motif format.",
+    version,
     after_help = "Examples:\n  meme2homer -i motifs.meme -j JASPAR2026 > motifs.homer\n  meme2homer -i motifs.meme.gz -j JASPAR2026 > motifs.homer\n  meme2homer -i motifs.meme -b 0.25 -t 6\n  meme2homer -i motifs.meme -f json > motifs.json\n"
 )]
 struct Args {

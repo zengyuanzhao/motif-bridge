@@ -39,8 +39,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y perl
 
+      - name: Install Python test dependencies
+        run: python -m pip install "pytest<9"
+
       - name: Run test suite
         run: bash test_motif_bridge.sh
+
+      - name: Run Python unit tests
+        run: python -m pytest tests
 
       - name: Test installed Python entry points
         run: |
@@ -107,10 +113,10 @@ jobs:
         run: pip install ruff==0.9.6
 
       - name: Run ruff check
-        run: ruff check python_scripts/ motif_bridge/
+        run: ruff check python_scripts/ motif_bridge/ tests/
 
       - name: Run ruff format check
-        run: ruff format --check python_scripts/ motif_bridge/
+        run: ruff format --check python_scripts/ motif_bridge/ tests/
 
   perl-lint:
     runs-on: ubuntu-latest

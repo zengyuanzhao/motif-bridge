@@ -112,7 +112,13 @@ def read_meme(fh: TextIO, alphabet_override: Optional[str] = None) -> Iterator[M
             if "alength=" in stripped:
                 try:
                     alength = int(stripped.split("alength=")[1].split()[0])
-                    expected_cols = alength
+                    if alength != expected_cols:
+                        sys.stderr.write(
+                            f"Warning: alength={alength} conflicts with alphabet {alphabet} "
+                            f"(expected {expected_cols} cols); using alphabet-derived width\n"
+                        )
+                    else:
+                        expected_cols = alength
                 except (ValueError, IndexError):
                     pass
             continue
@@ -127,16 +133,18 @@ def read_meme(fh: TextIO, alphabet_override: Optional[str] = None) -> Iterator[M
                 row = [float(t) for t in tokens]
                 if len(row) == expected_cols:
                     if any(v < 0 for v in row):
-                        sys.stderr.write(
+                        msg = (
                             "Warning: negative value in matrix row "
                             f"(expected probabilities): {stripped}\n"
                         )
+                        sys.stderr.write(msg)
                     matrix.append(row)
                 elif row:
-                    sys.stderr.write(
+                    msg = (
                         "Warning: skipping malformed matrix row "
                         f"(expected {expected_cols} cols, got {len(row)}): {stripped}\n"
                     )
+                    sys.stderr.write(msg)
             except ValueError:
                 pass
 
@@ -189,10 +197,11 @@ def read_homer(
             if not row:
                 continue
             if len(row) != expected_cols:
-                sys.stderr.write(
+                msg = (
                     "Warning: skipping malformed row "
                     f"(expected {expected_cols} cols, got {len(row)}): {stripped}\n"
                 )
+                sys.stderr.write(msg)
                 continue
             if is_logodds_row(row, input_format):
                 row = logodds_to_prob(row, pseudocount, background)
@@ -225,10 +234,11 @@ def read_json(
         processed_matrix = []
         for row in matrix:
             if len(row) != expected_cols:
-                sys.stderr.write(
+                msg = (
                     "Warning: skipping malformed matrix row "
                     f"(expected {expected_cols} cols, got {len(row)})\n"
                 )
+                sys.stderr.write(msg)
                 continue
             if is_logodds_row(row, input_format):
                 row = logodds_to_prob(row, pseudocount, background)

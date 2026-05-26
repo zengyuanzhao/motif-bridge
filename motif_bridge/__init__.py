@@ -16,4 +16,7 @@ __all__ = [
     "write_homer",
     "write_json",
     "write_meme",
+    "__version__",
 ]
+
+__version__ = "0.2.0"

@@ -24,6 +24,7 @@ use std::io::{self, BufRead, BufReader, BufWriter};
 #[command(
     name = "homer2meme",
     about = "Convert HOMER motif format to MEME format.",
+    version,
     after_help = "Examples:\n  homer2meme -i motifs.homer > motifs.meme\n  homer2meme -i motifs.homer.gz > motifs.meme\n  homer2meme -i motifs.homer -e \"CTCF/Jaspar\"\n  homer2meme -i motifs.json -f json > motifs.meme\n  homer2meme -i motifs.homer --input-format logodds\n  cat motifs.homer | homer2meme -i -\n"
 )]
 struct Args {

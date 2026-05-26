@@ -105,3 +105,103 @@ impl Motif {
 
     // Direct-print helpers removed; use io::write_homer/write_meme for output.
 }
+
+#[cfg(test)]
+mod tests {
+    use super::Motif;
+
+    fn assert_close(actual: f64, expected: f64) {
+        assert!(
+            (actual - expected).abs() < 1e-9,
+            "expected {expected}, got {actual}"
+        );
+    }
+
+    #[test]
+    fn calculate_ic_dna_conserved_and_uniform_rows() {
+        let motif = Motif::new(
+            "m1".to_string(),
+            "dna".to_string(),
+            vec![vec![1.0, 0.0, 0.0, 0.0], vec![0.25, 0.25, 0.25, 0.25]],
+            "ACGT".to_string(),
+        );
+
+        let ic = motif.calculate_ic();
+
+        assert_close(ic[0], 2.0);
+        assert_close(ic[1], 0.0);
+        assert_close(motif.total_ic(), 2.0);
+    }
+
+    #[test]
+    fn calculate_ic_protein_uses_twenty_letter_maximum() {
+        let mut conserved = vec![0.0; 20];
+        conserved[0] = 1.0;
+        let uniform = vec![0.05; 20];
+        let motif = Motif::new(
+            "p1".to_string(),
+            "protein".to_string(),
+            vec![conserved, uniform],
+            "PROTEIN".to_string(),
+        );
+
+        let ic = motif.calculate_ic();
+
+        assert_close(ic[0], 20.0_f64.log2());
+        assert_close(ic[1], 0.0);
+    }
+
+    #[test]
+    fn reverse_complement_reverses_rows_and_swaps_columns() {
+        let mut motif = Motif::new(
+            "m1".to_string(),
+            "dna".to_string(),
+            vec![vec![0.1, 0.2, 0.3, 0.4], vec![0.5, 0.6, 0.7, 0.8]],
+            "ACGT".to_string(),
+        );
+
+        motif.reverse_complement().unwrap();
+
+        assert_eq!(motif.id, "m1_RC");
+        assert_eq!(
+            motif.matrix,
+            vec![vec![0.8, 0.7, 0.6, 0.5], vec![0.4, 0.3, 0.2, 0.1]]
+        );
+    }
+
+    #[test]
+    fn reverse_complement_rejects_protein() {
+        let mut motif = Motif::new(
+            "p1".to_string(),
+            "protein".to_string(),
+            vec![vec![1.0; 20]],
+            "PROTEIN".to_string(),
+        );
+
+        let err = motif.reverse_complement().unwrap_err();
+
+        assert!(err.contains("Reverse complement not supported"));
+    }
+
+    #[test]
+    fn trim_edges_removes_low_ic_flanks() {
+        let mut motif = Motif::new(
+            "m1".to_string(),
+            "dna".to_string(),
+            vec![
+                vec![0.25, 0.25, 0.25, 0.25],
+                vec![1.0, 0.0, 0.0, 0.0],
+                vec![0.0, 1.0, 0.0, 0.0],
+                vec![0.25, 0.25, 0.25, 0.25],
+            ],
+            "ACGT".to_string(),
+        );
+
+        motif.trim_edges(0.5);
+
+        assert_eq!(
+            motif.matrix,
+            vec![vec![1.0, 0.0, 0.0, 0.0], vec![0.0, 1.0, 0.0, 0.0]]
+        );
+    }
+}

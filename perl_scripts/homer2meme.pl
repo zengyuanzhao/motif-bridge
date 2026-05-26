@@ -4,6 +4,8 @@ use warnings;
 use Getopt::Long;
 use IO::Uncompress::Gunzip qw($GunzipError);
 
+our $VERSION = '0.2.0';
+
 my $input       = '';
 my $extract     = '';
 my $pseudocount = 0.01;
@@ -14,6 +16,7 @@ my $do_rc       = 0;
 my $trim_edges  = 0;
 my $min_ic      = 0;
 my $alphabet    = 'ACGT';
+my $show_version = 0;
 
 GetOptions(
     'i=s' => \$input,
@@ -27,8 +30,14 @@ GetOptions(
     'rc'    => \$do_rc,
     'trim-edges=f' => \$trim_edges,
     'min-ic=f' => \$min_ic,
+    'version' => \$show_version,
     'h'   => sub { usage() },
 ) or usage();
+
+if ($show_version) {
+    print "homer2meme $VERSION\n";
+    exit 0;
+}
 
 usage() unless $input;
 die "Error: -a must be > 0.\n" unless $pseudocount > 0;
@@ -394,6 +403,7 @@ Options:
     -f, --format <fmt>  Input format: homer (default) or json
     --input-format <fmt>  Matrix type: auto (default), logodds, or probability
     --alphabet <str> Alphabet: ACGT (default), ACGU, or PROTEIN
+    --version        Show version and exit
     --rc                Output the reverse complement of the motif (DNA/RNA only)
     --trim-edges <float> Trim edges with information content below threshold
     --min-ic <float>    Filter out motifs with total information content below threshold

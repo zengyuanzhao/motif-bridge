@@ -169,6 +169,7 @@ cd rust_scripts && cargo build --release && cd ..
 | `--rc` | Output the reverse complement of the motif (DNA/RNA only) | *(off)* |
 | `--trim-edges <float>` | Trim edges with Information Content below threshold | `0.0` |
 | `--min-ic <float>` | Filter out motifs with total Information Content below threshold | `0.0` |
+| `--version` | Show version and exit | |
 | `-h` | Show help | |
 
 ### homer2meme (all implementations)
@@ -185,6 +186,7 @@ cd rust_scripts && cargo build --release && cd ..
 | `--rc` | Output the reverse complement of the motif (DNA/RNA only) | *(off)* |
 | `--trim-edges <float>` | Trim edges with Information Content below threshold | `0.0` |
 | `--min-ic <float>` | Filter out motifs with total Information Content below threshold | `0.0` |
+| `--version` | Show version and exit | |
 | `-h` | Show help | |
 
 Note: `homer2meme` auto-detects log-odds vs probability rows by checking whether row sum is near 1.0 (`[0.98, 1.02]`). This is a practical heuristic and may be ambiguous for edge-case inputs whose log-odds rows also sum near 1.0. When the source format is known, prefer `--input-format logodds` or `--input-format probability` to avoid misclassification.
@@ -393,6 +395,7 @@ Run `bash test_motif_bridge.sh` locally. The test suite covers:
 | 12. Motif operations | Test `--rc`, `--trim-edges`, and `--min-ic` flags |
 | 13. MOTIF word boundary | Ensure `MOTIF` lines require a word boundary (`MOTIFY` ignored) |
 | 14. Negative matrix warnings | Ensure negative MEME values trigger warnings |
+| 15. Version and parser metadata | Test `--version`, Perl version parsing, and `ALPHABET=`/`alength=` conflicts |
 
 ### Continuous Integration
 

@@ -155,13 +155,19 @@ pub fn read_meme<R: BufRead>(
         if trimmed.starts_with("letter-probability matrix:") {
             in_matrix = true;
             if let Some(alength_idx) = trimmed.find("alength=") {
-                let rest = &trimmed[alength_idx + 8..];
-                if let Some(space_idx) = rest.find(char::is_whitespace) {
-                    if let Ok(len) = rest[..space_idx].parse::<usize>() {
+                let rest = trimmed[alength_idx + 8..].trim_start();
+                if let Some(value) = rest.split_whitespace().next() {
+                    let Ok(len) = value.parse::<usize>() else {
+                        continue;
+                    };
+                    if len != expected_cols {
+                        eprintln!(
+                            "Warning: alength={} conflicts with alphabet {} (expected {} cols); using alphabet-derived width",
+                            len, alphabet, expected_cols
+                        );
+                    } else {
                         expected_cols = len;
                     }
-                } else if let Ok(len) = rest.parse::<usize>() {
-                    expected_cols = len;
                 }
             }
             continue;
@@ -453,4 +459,67 @@ pub fn write_json<W: Write>(writer: &mut W, motifs: &[Motif]) -> Result<(), Moti
     writeln!(writer, "  ]")?;
     writeln!(writer, "}}")?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{is_logodds, logodds_to_prob, read_meme, write_meme, MatrixType};
+    use std::io::Cursor;
+
+    #[test]
+    fn is_logodds_respects_explicit_matrix_type() {
+        assert!(!is_logodds(&[0.2, 0.3, 0.3, 0.2], MatrixType::Probability));
+        assert!(is_logodds(&[0.2, 0.3, 0.3, 0.2], MatrixType::Logodds));
+        assert!(is_logodds(&[2.0, 0.0, -1.0, -2.0], MatrixType::Auto));
+        assert!(!is_logodds(&[0.25, 0.25, 0.25, 0.25], MatrixType::Auto));
+    }
+
+    #[test]
+    fn logodds_to_prob_normalizes_rows() {
+        let row = logodds_to_prob(&[2.0, 0.0, -1.0, -2.0], 0.01, 0.25);
+        let sum: f64 = row.iter().sum();
+
+        assert!((sum - 1.0).abs() < 1e-9);
+        assert!(row[0] > row[1]);
+        assert!(row[1] > row[2]);
+        assert!(row[2] > row[3]);
+    }
+
+    #[test]
+    fn read_meme_keeps_alphabet_width_when_alength_conflicts() {
+        let source = "MEME version 4\n\
+\n\
+ALPHABET= PROTEIN\n\
+\n\
+MOTIF P0001 protein_motif\n\
+\n\
+letter-probability matrix: alength= 4 w= 2 nsites= 20 E= 0\n\
+  0.05 0.05 0.05 0.05 0.05 0.05 0.05 0.05 0.05 0.05 0.05 0.05 0.05 0.05 0.05 0.05 0.05 0.05 0.05 0.05\n\
+  0.10 0.05 0.05 0.05 0.05 0.05 0.05 0.05 0.05 0.05 0.05 0.05 0.05 0.05 0.05 0.05 0.05 0.05 0.00 0.05\n\
+//\n";
+
+        let motifs = read_meme(Cursor::new(source), None).unwrap();
+
+        assert_eq!(motifs.len(), 1);
+        assert_eq!(motifs[0].alphabet, "PROTEIN");
+        assert_eq!(motifs[0].matrix.len(), 2);
+        assert!(motifs[0].matrix.iter().all(|row| row.len() == 20));
+    }
+
+    #[test]
+    fn write_meme_omits_strands_for_protein() {
+        let source = format!(
+            "ALPHABET= PROTEIN\nMOTIF P1\nletter-probability matrix:\n{}\n",
+            vec!["0.05"; 20].join(" ")
+        );
+        let motifs = read_meme(Cursor::new(source), None).unwrap();
+        let mut out = Vec::new();
+
+        write_meme(&mut out, &motifs).unwrap();
+
+        let rendered = String::from_utf8(out).unwrap();
+        assert!(rendered.contains("ALPHABET= PROTEIN"));
+        assert!(!rendered.contains("strands: + -"));
+        assert!(rendered.contains("A 0.05"));
+    }
 }
