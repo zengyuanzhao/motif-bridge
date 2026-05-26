@@ -11,12 +11,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `--version` flag for Python, Perl, and Rust CLIs.
 - Regression coverage for CLI version reporting, Perl `VERSION_FROM` parsing, and MEME `alength=` conflicts.
 - Python and Rust unit tests for core IC, log-odds, reverse-complement, trimming, and format-writer behavior.
+- Explicit pytest configuration for the `tests/` suite.
 
 ### Fixed
+- Perl PROTEIN information-content calculations now use the 20-letter maximum entropy.
+- MEME `ALPHABET=` is auto-detected across Python, Perl, and Rust readers, with `--alphabet` retained as an override.
+- Rust MEME parsing now warns on malformed matrix rows, matching Python and Perl behavior.
+- HOMER score calculation is centralized on the motif model instead of duplicated in Python I/O code.
+- Rust JSON string output now uses `serde_json::to_string` escaping.
+- PROTEIN MEME output no longer emits DNA/RNA `strands: + -` metadata.
+- Reverse-complement requests for unsupported alphabets now skip motifs with warnings instead of failing hard.
 - Perl package version discovery now reads `our $VERSION` from `perl_scripts/meme2homer.pl`.
 - Perl stderr is consistently emitted as UTF-8 across both converters.
 - MEME readers now warn on `alength=`/`ALPHABET=` width conflicts and keep the alphabet-derived width instead of dropping valid rows.
+- Python CLI version reporting now reads installed package metadata when available, using the source-tree fallback only when metadata is absent.
 - Shell regression checks now run inline Python validators inside `if` conditions so failures are reported by the suite under `set -euo pipefail`.
+- Version regression tests compare CLI output to package metadata instead of hard-coding one release number.
 
 ## [0.2.0] - 2026-05-21
 

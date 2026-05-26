@@ -1114,35 +1114,60 @@ fi
 
 if run_stage 15 "Version and parser metadata regressions"; then
 
+PYPROJECT_VERSION=$(python3 - "$SCRIPT_DIR/pyproject.toml" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+match = re.search(r'^version\s*=\s*"([^"]+)"', Path(sys.argv[1]).read_text(), re.M)
+if not match:
+    raise SystemExit("missing pyproject version")
+print(match.group(1))
+PY
+)
+CARGO_VERSION=$(python3 - "$SCRIPT_DIR/rust_scripts/Cargo.toml" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+match = re.search(r'^version\s*=\s*"([^"]+)"', Path(sys.argv[1]).read_text(), re.M)
+if not match:
+    raise SystemExit("missing Cargo version")
+print(match.group(1))
+PY
+)
+PERL_M2H_VERSION=$(perl -MExtUtils::MM_Unix -e "print ExtUtils::MM_Unix->parse_version('$SCRIPT_DIR/perl_scripts/meme2homer.pl')")
+PERL_H2M_VERSION=$(perl -MExtUtils::MM_Unix -e "print ExtUtils::MM_Unix->parse_version('$SCRIPT_DIR/perl_scripts/homer2meme.pl')")
+
 if python3 "$PYTHON/meme2homer.py" --version > "$WORK_DIR/py_m2h_version.txt" 2>&1 \
-    && grep -q "0.2.0" "$WORK_DIR/py_m2h_version.txt"; then
+    && grep -Fq "$PYPROJECT_VERSION" "$WORK_DIR/py_m2h_version.txt"; then
     pass "Python meme2homer --version"
 else
     fail "Python meme2homer --version" "$(cat "$WORK_DIR/py_m2h_version.txt" 2>/dev/null || true)"
 fi
 
 if python3 "$PYTHON/homer2meme.py" --version > "$WORK_DIR/py_h2m_version.txt" 2>&1 \
-    && grep -q "0.2.0" "$WORK_DIR/py_h2m_version.txt"; then
+    && grep -Fq "$PYPROJECT_VERSION" "$WORK_DIR/py_h2m_version.txt"; then
     pass "Python homer2meme --version"
 else
     fail "Python homer2meme --version" "$(cat "$WORK_DIR/py_h2m_version.txt" 2>/dev/null || true)"
 fi
 
 if perl "$PERL/meme2homer.pl" --version > "$WORK_DIR/pl_m2h_version.txt" 2>&1 \
-    && grep -q "0.2.0" "$WORK_DIR/pl_m2h_version.txt"; then
+    && grep -Fq "$PERL_M2H_VERSION" "$WORK_DIR/pl_m2h_version.txt"; then
     pass "Perl meme2homer --version"
 else
     fail "Perl meme2homer --version" "$(cat "$WORK_DIR/pl_m2h_version.txt" 2>/dev/null || true)"
 fi
 
 if perl "$PERL/homer2meme.pl" --version > "$WORK_DIR/pl_h2m_version.txt" 2>&1 \
-    && grep -q "0.2.0" "$WORK_DIR/pl_h2m_version.txt"; then
+    && grep -Fq "$PERL_H2M_VERSION" "$WORK_DIR/pl_h2m_version.txt"; then
     pass "Perl homer2meme --version"
 else
     fail "Perl homer2meme --version" "$(cat "$WORK_DIR/pl_h2m_version.txt" 2>/dev/null || true)"
 fi
 
-if perl -MExtUtils::MM_Unix -e "exit(ExtUtils::MM_Unix->parse_version('$SCRIPT_DIR/perl_scripts/meme2homer.pl') eq '0.2.0' ? 0 : 1)" > "$WORK_DIR/pl_version_from.txt" 2>&1; then
+if [ -n "$PERL_M2H_VERSION" ]; then
     pass "Makefile.PL VERSION_FROM target parses"
 else
     fail "Makefile.PL VERSION_FROM target parses" "$(cat "$WORK_DIR/pl_version_from.txt")"
@@ -1150,14 +1175,14 @@ fi
 
 if [ -n "$RUST_BIN" ]; then
     if "$RUST_BIN/meme2homer" --version > "$WORK_DIR/rs_m2h_version.txt" 2>&1 \
-        && grep -q "0.2.0" "$WORK_DIR/rs_m2h_version.txt"; then
+        && grep -Fq "$CARGO_VERSION" "$WORK_DIR/rs_m2h_version.txt"; then
         pass "Rust meme2homer --version"
     else
         fail "Rust meme2homer --version" "$(cat "$WORK_DIR/rs_m2h_version.txt" 2>/dev/null || true)"
     fi
 
     if "$RUST_BIN/homer2meme" --version > "$WORK_DIR/rs_h2m_version.txt" 2>&1 \
-        && grep -q "0.2.0" "$WORK_DIR/rs_h2m_version.txt"; then
+        && grep -Fq "$CARGO_VERSION" "$WORK_DIR/rs_h2m_version.txt"; then
         pass "Rust homer2meme --version"
     else
         fail "Rust homer2meme --version" "$(cat "$WORK_DIR/rs_h2m_version.txt" 2>/dev/null || true)"
