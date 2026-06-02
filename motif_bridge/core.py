@@ -108,9 +108,7 @@ class Motif:
             data["threshold"] = self.threshold
         return data
 
-    def calculate_score(
-        self, bg: Background, t_offset: float, renormalize: bool = False
-    ) -> float:
+    def calculate_score(self, bg: Background, t_offset: float, renormalize: bool = False) -> float:
         """Calculate HOMER log-odds threshold from a probability matrix."""
         score = 0.0
         for row in self.matrix:

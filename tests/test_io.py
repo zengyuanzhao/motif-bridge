@@ -88,12 +88,7 @@ def test_write_meme_metadata_overrides_and_renormalizes_rows():
 
 
 def test_write_homer_warns_on_zero_threshold(capsys):
-    motif = read_meme(
-        StringIO(
-            "MOTIF WEAK\nletter-probability matrix:\n"
-            "0.25 0.25 0.25 0.25\n"
-        )
-    )
+    motif = read_meme(StringIO("MOTIF WEAK\nletter-probability matrix:\n0.25 0.25 0.25 0.25\n"))
     output = StringIO()
 
     write_homer(motif, output)
