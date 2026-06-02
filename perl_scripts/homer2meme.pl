@@ -9,12 +9,15 @@ our $VERSION = '0.2.0';
 my $input       = '';
 my $extract     = '';
 my $pseudocount = 0.01;
-my $background  = 0.25;
+my $background  = '0.25';
 my $input_fmt   = 'homer';
 my $matrix_type = 'auto';
 my $do_rc       = 0;
 my $trim_edges  = 0;
 my $min_ic      = 0;
+my $nsites;
+my $evalue;
+my $renormalize = 0;
 my $alphabet    = 'ACGT';
 my $show_version = 0;
 
@@ -22,7 +25,7 @@ GetOptions(
     'i=s' => \$input,
     'e=s' => \$extract,
     'a=f' => \$pseudocount,
-    'b=f' => \$background,
+    'b=s' => \$background,
     'f=s' => \$input_fmt,
     'format=s' => \$input_fmt,
     'input-format=s' => \$matrix_type,
@@ -30,6 +33,9 @@ GetOptions(
     'rc'    => \$do_rc,
     'trim-edges=f' => \$trim_edges,
     'min-ic=f' => \$min_ic,
+    'nsites=i' => \$nsites,
+    'evalue=f' => \$evalue,
+    'renormalize' => \$renormalize,
     'version' => \$show_version,
     'h'   => sub { usage() },
 ) or usage();
@@ -41,7 +47,9 @@ if ($show_version) {
 
 usage() unless $input;
 die "Error: -a must be > 0.\n" unless $pseudocount > 0;
-die "Error: -b must be in (0, 1].\n" unless $background > 0 && $background <= 1;
+my @background_values = parse_background($background);
+die "Error: --nsites must be > 0.\n" if defined $nsites && $nsites <= 0;
+die "Error: --evalue must be >= 0.\n" if defined $evalue && $evalue < 0;
 die "Error: unknown format: $input_fmt\n" unless $input_fmt eq 'homer' || $input_fmt eq 'json';
 die "Error: unknown input-format: $matrix_type\n" unless $matrix_type eq 'auto' || $matrix_type eq 'logodds' || $matrix_type eq 'probability';
 die "Error: unknown alphabet: $alphabet\n" unless $alphabet =~ /^(ACGT|ACGU|PROTEIN)$/;
@@ -54,12 +62,15 @@ my %ALPHABETS = (
 my %config = (
     extract => $extract,
     pseudocount => $pseudocount,
-    background => $background,
+    background => \@background_values,
     input_fmt => $input_fmt,
     matrix_type => $matrix_type,
     do_rc => $do_rc,
     trim_edges => $trim_edges,
     min_ic => $min_ic,
+    nsites => $nsites,
+    evalue => $evalue,
+    renormalize => $renormalize,
     alphabet => $alphabet,
     expected_cols => length($ALPHABETS{$alphabet} || $alphabet),
 );
@@ -99,15 +110,65 @@ sub is_logodds {
     return 0 if $matrix_type eq 'probability';
     my $sum = 0;
     $sum += $_ for @$row_ref;
-    return ($sum < 0.98 || $sum > 1.02);
+    my $is_probability = ($sum >= 0.98 && $sum <= 1.02);
+    my $all_nonnegative = 1;
+    for my $v (@$row_ref) {
+        if ($v < 0) {
+            $all_nonnegative = 0;
+            last;
+        }
+    }
+    if (!$is_probability && $all_nonnegative && $sum >= 0.90 && $sum <= 1.10) {
+        warn sprintf(
+            "Warning: row sum %.4f is close to the auto-detection boundary; use --input-format logodds or --input-format probability for reproducibility\n",
+            $sum
+        );
+    }
+    return !$is_probability;
 }
 
 sub logodds_to_prob {
-    my ($row_ref, $pc, $bg) = @_;
-    my @raw = map { 2 ** $_ * $bg } @$row_ref;
+    my ($row_ref, $pc, $bg_ref) = @_;
+    my @bg = background_for_width($bg_ref, scalar(@$row_ref));
+    my @raw;
+    for my $i (0 .. $#{$row_ref}) {
+        push @raw, 2 ** $row_ref->[$i] * $bg[$i];
+    }
     my $total = $pc * scalar(@raw);
     $total += $_ for @raw;
     return map { ($_ + $pc) / $total } @raw;
+}
+
+sub parse_background {
+    my ($value) = @_;
+    my @parts = split /,/, $value, -1;
+    die "Error: -b must contain at least one value.\n" unless @parts;
+    my @values;
+    foreach my $part (@parts) {
+        die "Error: invalid -b value: $value\n" unless $part =~ /^-?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
+        my $v = $part + 0;
+        die "Error: -b values must be in (0, 1].\n" unless $v > 0 && $v <= 1;
+        push @values, $v;
+    }
+    return @values;
+}
+
+sub background_for_width {
+    my ($bg_ref, $width) = @_;
+    if (scalar(@$bg_ref) == 1) {
+        return (($bg_ref->[0]) x $width);
+    }
+    die "Error: background length " . scalar(@$bg_ref) . " does not match row width $width\n"
+        unless scalar(@$bg_ref) == $width;
+    return @$bg_ref;
+}
+
+sub renormalized_row {
+    my ($row_ref) = @_;
+    my $sum = 0;
+    $sum += $_ for @$row_ref;
+    return @$row_ref unless $sum > 0;
+    return map { $_ / $sum } @$row_ref;
 }
 
 sub calculate_ic {
@@ -199,7 +260,7 @@ sub process_homer_motif {
         $$header_ref = 1;
         $$header_alphabet_ref = $config->{alphabet};
     }
-    print_meme_motif($id, $desc, \@mat, $config->{expected_cols});
+    print_meme_motif($id, $desc, \@mat, $config);
 }
 
 sub background_line {
@@ -232,13 +293,17 @@ sub print_meme_header {
 }
 
 sub print_meme_motif {
-    my ($id, $desc, $matrix_ref, $expected_cols) = @_;
+    my ($id, $desc, $matrix_ref, $config) = @_;
+    my $expected_cols = $config->{expected_cols};
+    my $nsites = defined $config->{nsites} ? $config->{nsites} : 20;
+    my $evalue = defined $config->{evalue} ? sprintf("%.6f", $config->{evalue}) : "0";
     my $width = scalar @$matrix_ref;
     print "MOTIF $id $desc\n";
     print "\n";
-    print "letter-probability matrix: alength= $expected_cols w= $width nsites= 20 E= 0\n";
+    print "letter-probability matrix: alength= $expected_cols w= $width nsites= $nsites E= $evalue\n";
     foreach my $row (@$matrix_ref) {
-        print "  " . join("  ", map { sprintf("%.6f", $_) } @$row) . "\n";
+        my @values = $config->{renormalize} ? renormalized_row($row) : @$row;
+        print "  " . join("  ", map { sprintf("%.6f", $_) } @values) . "\n";
     }
     print "\n";
 }
@@ -399,7 +464,7 @@ Options:
     -i <file>   Input HOMER motif file (or '-' for stdin, supports .gz)
     -e <string> Extract only specified motif by id or description
     -a <float>  Pseudocount for log-odds to probability conversion (default: 0.01)
-    -b <float>  Background probability for log-odds conversion (default: 0.25)
+    -b <float[,float...]>  Background probability scalar or vector (default: 0.25)
     -f, --format <fmt>  Input format: homer (default) or json
     --input-format <fmt>  Matrix type: auto (default), logodds, or probability
     --alphabet <str> Alphabet: ACGT (default), ACGU, or PROTEIN
@@ -407,6 +472,9 @@ Options:
     --rc                Output the reverse complement of the motif (DNA/RNA only)
     --trim-edges <float> Trim edges with information content below threshold
     --min-ic <float>    Filter out motifs with total information content below threshold
+    --nsites <int>       Override MEME nsites metadata in output
+    --evalue <float>     Override MEME E metadata in output
+    --renormalize        Renormalize each row before writing MEME output
     -h          Show this help
 
 Examples:
@@ -415,6 +483,7 @@ Examples:
     $0 -i results/motifs.homer -e "CTCF/Jaspar"
     $0 -i motifs.json -f json > motifs.meme
     $0 -i motifs.homer --input-format logodds
+    $0 -i motifs.homer --input-format logodds -b 0.29,0.21,0.21,0.29
     $0 -i motifs.homer --rc
     cat motifs.homer | $0 -i -
 

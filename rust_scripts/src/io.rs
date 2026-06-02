@@ -1,4 +1,4 @@
-use crate::{Motif, MotifError};
+use crate::{background_values, renormalized, Motif, MotifError};
 use serde_json::Value;
 use std::io::{BufRead, Write};
 
@@ -43,15 +43,31 @@ pub fn is_logodds(row: &[f64], matrix_type: MatrixType) -> bool {
         MatrixType::Probability => false,
         MatrixType::Auto => {
             let s: f64 = row.iter().sum();
-            !(0.98..=1.02).contains(&s)
+            let is_probability = (0.98..=1.02).contains(&s);
+            if !is_probability && row.iter().all(|v| *v >= 0.0) && (0.90..=1.10).contains(&s) {
+                eprintln!(
+                    "Warning: row sum {:.4} is close to the auto-detection boundary; use --input-format logodds or --input-format probability for reproducibility",
+                    s
+                );
+            }
+            !is_probability
         }
     }
 }
 
-pub fn logodds_to_prob(row: &[f64], pseudocount: f64, background: f64) -> Vec<f64> {
-    let raw: Vec<f64> = row.iter().map(|&v| 2.0_f64.powf(v) * background).collect();
+pub fn logodds_to_prob(
+    row: &[f64],
+    pseudocount: f64,
+    background: &[f64],
+) -> Result<Vec<f64>, MotifError> {
+    let bg_values = background_values(background, row.len())?;
+    let raw: Vec<f64> = row
+        .iter()
+        .enumerate()
+        .map(|(i, &v)| 2.0_f64.powf(v) * bg_values[i])
+        .collect();
     let total: f64 = raw.iter().sum::<f64>() + pseudocount * raw.len() as f64;
-    raw.into_iter().map(|v| (v + pseudocount) / total).collect()
+    Ok(raw.into_iter().map(|v| (v + pseudocount) / total).collect())
 }
 
 fn json_string(value: &str) -> String {
@@ -215,11 +231,12 @@ pub fn read_homer<R: BufRead>(
     pseudocount: f64,
     matrix_type: MatrixType,
     alphabet: &str,
-    background: f64,
+    background: &[f64],
 ) -> Result<Vec<Motif>, MotifError> {
     let mut in_motif = false;
     let mut motif_id = String::new();
     let mut description = String::new();
+    let mut threshold: Option<f64> = None;
     let mut matrix: Vec<Vec<f64>> = Vec::new();
     let mut motifs = Vec::new();
     let expected_cols = alphabet_letters(alphabet).chars().count();
@@ -234,11 +251,12 @@ pub fn read_homer<R: BufRead>(
 
         if let Some(rest) = trimmed.strip_prefix('>') {
             if in_motif && !matrix.is_empty() {
-                motifs.push(Motif::new(
+                motifs.push(Motif::with_threshold(
                     motif_id.clone(),
                     description.clone(),
                     std::mem::take(&mut matrix),
                     alphabet.to_string(),
+                    threshold,
                 ));
             }
             matrix.clear();
@@ -246,6 +264,7 @@ pub fn read_homer<R: BufRead>(
             let parts: Vec<&str> = rest.splitn(6, '\t').collect();
             let mid = parts.first().copied().unwrap_or("motif").to_string();
             let raw_desc = parts.get(1).copied().unwrap_or("").to_string();
+            let source_threshold = parts.get(2).and_then(|v| v.parse::<f64>().ok());
             let final_desc = if raw_desc.is_empty() {
                 mid.clone()
             } else {
@@ -254,6 +273,7 @@ pub fn read_homer<R: BufRead>(
 
             motif_id = mid;
             description = final_desc;
+            threshold = source_threshold;
             in_motif = true;
             continue;
         }
@@ -278,7 +298,7 @@ pub fn read_homer<R: BufRead>(
                     continue; // Skip malformed
                 }
                 if is_logodds(&row, matrix_type) {
-                    row = logodds_to_prob(&row, pseudocount, background);
+                    row = logodds_to_prob(&row, pseudocount, background)?;
                 }
                 matrix.push(row);
             }
@@ -286,11 +306,12 @@ pub fn read_homer<R: BufRead>(
     }
 
     if in_motif && !matrix.is_empty() {
-        motifs.push(Motif::new(
+        motifs.push(Motif::with_threshold(
             motif_id,
             description,
             matrix,
             alphabet.to_string(),
+            threshold,
         ));
     }
 
@@ -301,7 +322,7 @@ pub fn read_json<R: BufRead>(
     mut reader: R,
     pseudocount: f64,
     matrix_type: MatrixType,
-    background: f64,
+    background: &[f64],
 ) -> Result<Vec<Motif>, MotifError> {
     let mut content = String::new();
     reader.read_to_string(&mut content)?;
@@ -321,6 +342,7 @@ pub fn read_json<R: BufRead>(
                 .get("alphabet")
                 .and_then(|v| v.as_str())
                 .unwrap_or("ACGT");
+            let threshold = motif.get("threshold").and_then(|v| v.as_f64());
 
             if matrix.is_none() {
                 continue;
@@ -337,7 +359,7 @@ pub fn read_json<R: BufRead>(
                     let vals: Vec<f64> = arr.iter().filter_map(|v| v.as_f64()).collect();
                     if vals.len() == expected_cols {
                         if is_logodds(&vals, matrix_type) {
-                            processed.push(logodds_to_prob(&vals, pseudocount, background));
+                            processed.push(logodds_to_prob(&vals, pseudocount, background)?);
                         } else {
                             processed.push(vals);
                         }
@@ -346,11 +368,12 @@ pub fn read_json<R: BufRead>(
             }
 
             if !processed.is_empty() {
-                motifs.push(Motif::new(
+                motifs.push(Motif::with_threshold(
                     mid.to_string(),
                     desc.to_string(),
                     processed,
                     alphabet.to_string(),
+                    threshold,
                 ));
             }
         }
@@ -362,27 +385,66 @@ pub fn read_json<R: BufRead>(
 pub fn write_homer<W: Write>(
     writer: &mut W,
     motifs: &[Motif],
-    bg: f64,
+    bg: &[f64],
     t_offset: f64,
+    keep_threshold: bool,
+    renormalize_rows: bool,
 ) -> Result<(), MotifError> {
     for motif in motifs {
-        let score = motif.calculate_score(bg, t_offset);
+        let score = if keep_threshold {
+            if let Some(threshold) = motif.threshold {
+                threshold
+            } else {
+                let calculated = motif.calculate_score(bg, t_offset, renormalize_rows)?;
+                if calculated == 0.0 {
+                    eprintln!(
+                        "Warning: HOMER threshold for motif '{}' was clipped to 0 (t_offset={}); scanning may be very permissive",
+                        motif.id, t_offset
+                    );
+                }
+                calculated
+            }
+        } else {
+            let calculated = motif.calculate_score(bg, t_offset, renormalize_rows)?;
+            if calculated == 0.0 {
+                eprintln!(
+                    "Warning: HOMER threshold for motif '{}' was clipped to 0 (t_offset={}); scanning may be very permissive",
+                    motif.id, t_offset
+                );
+            }
+            calculated
+        };
         writeln!(
             writer,
             ">{}\t{}\t{:.6}\t0\t0\t0",
             motif.id, motif.description, score
         )?;
         for row in &motif.matrix {
-            let line: Vec<String> = row.iter().map(|v| format!("{:.6}", v)).collect();
+            let values = if renormalize_rows {
+                renormalized(row)
+            } else {
+                row.clone()
+            };
+            let line: Vec<String> = values.iter().map(|v| format!("{:.6}", v)).collect();
             writeln!(writer, "{}", line.join("\t"))?;
         }
     }
     Ok(())
 }
 
-pub fn write_meme<W: Write>(writer: &mut W, motifs: &[Motif]) -> Result<(), MotifError> {
+pub fn write_meme<W: Write>(
+    writer: &mut W,
+    motifs: &[Motif],
+    nsites: Option<usize>,
+    evalue: Option<f64>,
+    renormalize_rows: bool,
+) -> Result<(), MotifError> {
     let mut header_printed = false;
     let mut header_alphabet = String::new();
+    let nsites_value = nsites.unwrap_or(20);
+    let evalue_value = evalue
+        .map(|v| format!("{:.6}", v))
+        .unwrap_or_else(|| "0".to_string());
     for motif in motifs {
         if !header_printed {
             header_alphabet = motif.alphabet.clone();
@@ -408,11 +470,16 @@ pub fn write_meme<W: Write>(writer: &mut W, motifs: &[Motif]) -> Result<(), Moti
         writeln!(writer)?;
         writeln!(
             writer,
-            "letter-probability matrix: alength= {} w= {} nsites= 20 E= 0",
-            expected_cols, width
+            "letter-probability matrix: alength= {} w= {} nsites= {} E= {}",
+            expected_cols, width, nsites_value, evalue_value
         )?;
         for row in &motif.matrix {
-            let line: Vec<String> = row.iter().map(|v| format!("{:.6}", v)).collect();
+            let values = if renormalize_rows {
+                renormalized(row)
+            } else {
+                row.clone()
+            };
+            let line: Vec<String> = values.iter().map(|v| format!("{:.6}", v)).collect();
             writeln!(writer, "  {}", line.join("  "))?;
         }
         writeln!(writer)?;
@@ -440,6 +507,9 @@ pub fn write_json<W: Write>(writer: &mut W, motifs: &[Motif]) -> Result<(), Moti
                 json_string(&motif.alphabet)
             )?;
         }
+        if let Some(threshold) = motif.threshold {
+            writeln!(writer, "      \"threshold\": {:.6},", threshold)?;
+        }
         writeln!(writer, "      \"matrix\": [")?;
         for (ri, row) in motif.matrix.iter().enumerate() {
             let vals: Vec<String> = row.iter().map(|v| format!("{:.6}", v)).collect();
@@ -463,7 +533,9 @@ pub fn write_json<W: Write>(writer: &mut W, motifs: &[Motif]) -> Result<(), Moti
 
 #[cfg(test)]
 mod tests {
-    use super::{is_logodds, logodds_to_prob, read_meme, write_meme, MatrixType};
+    use super::{
+        is_logodds, logodds_to_prob, read_homer, read_meme, write_homer, write_meme, MatrixType,
+    };
     use std::io::Cursor;
 
     #[test]
@@ -476,7 +548,7 @@ mod tests {
 
     #[test]
     fn logodds_to_prob_normalizes_rows() {
-        let row = logodds_to_prob(&[2.0, 0.0, -1.0, -2.0], 0.01, 0.25);
+        let row = logodds_to_prob(&[2.0, 0.0, -1.0, -2.0], 0.01, &[0.25]).unwrap();
         let sum: f64 = row.iter().sum();
 
         assert!((sum - 1.0).abs() < 1e-9);
@@ -515,11 +587,50 @@ letter-probability matrix: alength= 4 w= 2 nsites= 20 E= 0\n\
         let motifs = read_meme(Cursor::new(source), None).unwrap();
         let mut out = Vec::new();
 
-        write_meme(&mut out, &motifs).unwrap();
+        write_meme(&mut out, &motifs, None, None, false).unwrap();
 
         let rendered = String::from_utf8(out).unwrap();
         assert!(rendered.contains("ALPHABET= PROTEIN"));
         assert!(!rendered.contains("strands: + -"));
         assert!(rendered.contains("A 0.05"));
+    }
+
+    #[test]
+    fn write_meme_overrides_metadata_and_renormalizes_rows() {
+        let source = ">M1\tdesc\t1\t0\t0\t0\n0.20\t0.20\t0.20\t0.20\n";
+        let motifs = read_homer(
+            Cursor::new(source),
+            0.01,
+            MatrixType::Probability,
+            "ACGT",
+            &[0.25],
+        )
+        .unwrap();
+        let mut out = Vec::new();
+
+        write_meme(&mut out, &motifs, Some(4000), Some(0.00001), true).unwrap();
+
+        let rendered = String::from_utf8(out).unwrap();
+        assert!(rendered.contains("nsites= 4000 E= 0.000010"));
+        assert!(rendered.contains("0.250000  0.250000  0.250000  0.250000"));
+    }
+
+    #[test]
+    fn write_homer_can_keep_source_threshold() {
+        let source = ">KEEP\tdesc\t9.5\t0\t0\t0\n0.25\t0.25\t0.25\t0.25\n";
+        let motifs = read_homer(
+            Cursor::new(source),
+            0.01,
+            MatrixType::Probability,
+            "ACGT",
+            &[0.25],
+        )
+        .unwrap();
+        let mut out = Vec::new();
+
+        write_homer(&mut out, &motifs, &[0.25], 4.0, true, false).unwrap();
+
+        let rendered = String::from_utf8(out).unwrap();
+        assert!(rendered.starts_with(">KEEP\tdesc\t9.500000\t"));
     }
 }

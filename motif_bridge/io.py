@@ -2,7 +2,7 @@ import json
 import sys
 from typing import Iterable, Iterator, List, Optional, TextIO
 
-from .core import Motif
+from .core import Background, Motif, _renormalized
 
 ALPHABETS = {
     "ACGT": "ACGT",
@@ -30,10 +30,21 @@ def _json_string(value: str) -> str:
 
 
 def logodds_to_prob(
-    row: List[float], pseudocount: float = 0.01, background: float = 0.25
+    row: List[float], pseudocount: float = 0.01, background: Background = 0.25
 ) -> List[float]:
     """Convert a HOMER log-odds row to a probability row."""
-    raw = [2**v * background for v in row]
+    if isinstance(background, (list, tuple)):
+        if len(background) != len(row):
+            raise ValueError(
+                f"background length {len(background)} does not match row width {len(row)}"
+            )
+        bg_values = [float(v) for v in background]
+    else:
+        bg_values = [float(background)] * len(row)
+    if any(v <= 0 for v in bg_values):
+        raise ValueError("background values must be > 0")
+
+    raw = [2**v * bg_values[i] for i, v in enumerate(row)]
     total = sum(raw) + pseudocount * len(raw)
     return [(v + pseudocount) / total for v in raw]
 
@@ -45,7 +56,13 @@ def is_logodds_row(row: List[float], input_format: str) -> bool:
     if input_format == "probability":
         return False
     s = sum(row)
-    return not (0.98 <= s <= 1.02)
+    is_probability = 0.98 <= s <= 1.02
+    if not is_probability and all(v >= 0 for v in row) and 0.90 <= s <= 1.10:
+        sys.stderr.write(
+            f"Warning: row sum {s:.4f} is close to the auto-detection boundary; "
+            "use --input-format logodds or --input-format probability for reproducibility\n"
+        )
+    return not is_probability
 
 
 def read_meme(fh: TextIO, alphabet_override: Optional[str] = None) -> Iterator[Motif]:
@@ -157,12 +174,13 @@ def read_homer(
     pseudocount: float = 0.01,
     input_format: str = "auto",
     alphabet: str = "ACGT",
-    background: float = 0.25,
+    background: Background = 0.25,
 ) -> Iterator[Motif]:
     """Parse HOMER format from a file-like object and yield Motif instances."""
     in_motif = False
     motif_id = ""
     description = ""
+    threshold: Optional[float] = None
     matrix: List[List[float]] = []
 
     expected_cols = len(_alphabet_letters(alphabet))
@@ -176,14 +194,21 @@ def read_homer(
 
         if stripped.startswith(">"):
             if in_motif and matrix:
-                yield Motif(motif_id, description, matrix, alphabet)
+                yield Motif(motif_id, description, matrix, alphabet, threshold=threshold)
 
             parts = stripped[1:].split("\t")
             mid = parts[0] if len(parts) > 0 else "motif"
             desc = parts[1] if len(parts) > 1 else mid
+            source_threshold = None
+            if len(parts) > 2:
+                try:
+                    source_threshold = float(parts[2])
+                except ValueError:
+                    source_threshold = None
 
             motif_id = mid
             description = desc
+            threshold = source_threshold
             matrix = []
             in_motif = True
             continue
@@ -210,14 +235,14 @@ def read_homer(
             pass
 
     if in_motif and matrix:
-        yield Motif(motif_id, description, matrix, alphabet)
+        yield Motif(motif_id, description, matrix, alphabet, threshold=threshold)
 
 
 def read_json(
     fh: TextIO,
     pseudocount: float = 0.01,
     input_format: str = "auto",
-    background: float = 0.25,
+    background: Background = 0.25,
 ) -> Iterator[Motif]:
     """Parse JSON format from a file-like object and yield Motif instances."""
     data = json.load(fh)
@@ -226,6 +251,12 @@ def read_json(
         desc = motif.get("description", mid)
         matrix = motif.get("matrix", [])
         alphabet = motif.get("alphabet", "ACGT")
+        threshold = motif.get("threshold")
+        if threshold is not None:
+            try:
+                threshold = float(threshold)
+            except (TypeError, ValueError):
+                threshold = None
 
         if not matrix:
             continue
@@ -245,27 +276,46 @@ def read_json(
             processed_matrix.append(row)
 
         if processed_matrix:
-            yield Motif(mid, desc, processed_matrix, alphabet)
+            yield Motif(mid, desc, processed_matrix, alphabet, threshold=threshold)
 
 
 def write_homer(
     motifs: Iterable[Motif],
     fh: TextIO,
-    background: float = 0.25,
+    background: Background = 0.25,
     threshold_offset: float = 4.0,
+    keep_threshold: bool = False,
+    renormalize: bool = False,
 ) -> None:
     """Write an iterable of Motif objects to a file-like object in HOMER format."""
     for m in motifs:
-        score = m.calculate_score(background, threshold_offset)
+        if keep_threshold and m.threshold is not None:
+            score = m.threshold
+        else:
+            score = m.calculate_score(background, threshold_offset, renormalize=renormalize)
+            if score == 0.0:
+                sys.stderr.write(
+                    f"Warning: HOMER threshold for motif '{m.id}' was clipped to 0 "
+                    f"(t_offset={threshold_offset}); scanning may be very permissive\n"
+                )
         fh.write(f">{m.id}\t{m.description}\t{score:.6f}\t0\t0\t0\n")
         for row in m.matrix:
-            fh.write("\t".join(f"{v:.6f}" for v in row) + "\n")
+            values = _renormalized(row) if renormalize else row
+            fh.write("\t".join(f"{v:.6f}" for v in values) + "\n")
 
 
-def write_meme(motifs: Iterable[Motif], fh: TextIO) -> None:
+def write_meme(
+    motifs: Iterable[Motif],
+    fh: TextIO,
+    nsites: Optional[int] = None,
+    evalue: Optional[float] = None,
+    renormalize: bool = False,
+) -> None:
     """Write an iterable of Motif objects to a file-like object in MEME format."""
     header_printed = False
     header_alphabet = ""
+    nsites_value = 20 if nsites is None else nsites
+    evalue_value = "0" if evalue is None else f"{evalue:.6f}"
 
     for m in motifs:
         if not header_printed:
@@ -288,10 +338,12 @@ def write_meme(motifs: Iterable[Motif], fh: TextIO) -> None:
         expected_cols = len(_alphabet_letters(m.alphabet))
         fh.write(f"MOTIF {m.id} {m.description}\n\n")
         fh.write(
-            f"letter-probability matrix: alength= {expected_cols} w= {width} nsites= 20 E= 0\n"
+            "letter-probability matrix: "
+            f"alength= {expected_cols} w= {width} nsites= {nsites_value} E= {evalue_value}\n"
         )
         for row in m.matrix:
-            fh.write("  " + "  ".join(f"{v:.6f}" for v in row) + "\n")
+            values = _renormalized(row) if renormalize else row
+            fh.write("  " + "  ".join(f"{v:.6f}" for v in values) + "\n")
         fh.write("\n")
 
 
@@ -308,6 +360,8 @@ def write_json(motifs: Iterable[Motif], fh: TextIO) -> None:
         fh.write(f'      "description": {_json_string(motif.description)},\n')
         if motif.alphabet:
             fh.write(f'      "alphabet": {_json_string(motif.alphabet)},\n')
+        if motif.threshold is not None:
+            fh.write(f'      "threshold": {motif.threshold:.6f},\n')
         fh.write('      "matrix": [\n')
         for ri, row in enumerate(motif.matrix):
             values = ", ".join(f"{v:.6f}" for v in row)

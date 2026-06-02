@@ -70,3 +70,25 @@ def test_trim_edges_removes_low_ic_flanks():
         [1.0, 0.0, 0.0, 0.0],
         [0.0, 1.0, 0.0, 0.0],
     ]
+
+
+def test_calculate_score_uses_column_specific_background():
+    motif = Motif(
+        "m1",
+        "dna",
+        [
+            [0.1, 0.2, 0.3, 0.4],
+            [0.6, 0.2, 0.1, 0.1],
+        ],
+    )
+
+    score = motif.calculate_score([0.30, 0.20, 0.20, 0.30], 0.0)
+
+    assert score == pytest.approx(math.log2(0.4 / 0.30) + math.log2(0.6 / 0.30))
+
+
+def test_calculate_score_rejects_background_width_mismatch():
+    motif = Motif("m1", "dna", [[0.25, 0.25, 0.25, 0.25]])
+
+    with pytest.raises(ValueError, match="background length"):
+        motif.calculate_score([0.25, 0.25], 0.0)

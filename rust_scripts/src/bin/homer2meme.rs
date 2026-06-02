@@ -37,9 +37,9 @@ struct Args {
     /// Pseudocount for log-odds -> probability conversion
     #[arg(short = 'a', value_parser = parse_positive, default_value = "0.01")]
     pseudocount: f64,
-    /// Background probability for log-odds conversion
-    #[arg(short = 'b', long = "background", value_parser = parse_prob, default_value = "0.25")]
-    background: f64,
+    /// Background probability scalar or comma-separated vector
+    #[arg(short = 'b', long = "background", default_value = "0.25")]
+    background: String,
     /// Input format: homer (default) or json
     #[arg(short = 'f', long = "format", value_enum, default_value_t = InputFormat::Homer)]
     input_format: InputFormat,
@@ -58,6 +58,15 @@ struct Args {
     /// Filter out motifs with total information content below threshold
     #[arg(long = "min-ic", value_parser = parse_nonneg, default_value = "0.0")]
     min_ic: f64,
+    /// Override MEME nsites metadata in output
+    #[arg(long = "nsites", value_parser = parse_positive_usize)]
+    nsites: Option<usize>,
+    /// Override MEME E metadata in output
+    #[arg(long = "evalue", value_parser = parse_nonneg)]
+    evalue: Option<f64>,
+    /// Renormalize each row before writing MEME output
+    #[arg(long = "renormalize", action = ArgAction::SetTrue)]
+    renormalize: bool,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -118,14 +127,21 @@ fn parse_positive(value: &str) -> Result<f64, String> {
     Ok(v)
 }
 
-fn parse_prob(value: &str) -> Result<f64, String> {
-    let v = value
-        .parse::<f64>()
-        .map_err(|_| format!("invalid -b value: {}", value))?;
-    if v <= 0.0 || v > 1.0 {
-        return Err(format!("-b must be in (0, 1], got {}", v));
+fn parse_background(value: &str) -> Result<Vec<f64>, String> {
+    let mut values = Vec::new();
+    for part in value.split(',') {
+        let v = part
+            .parse::<f64>()
+            .map_err(|_| format!("invalid -b value: {}", value))?;
+        if v <= 0.0 || v > 1.0 {
+            return Err(format!("-b values must be in (0, 1], got {}", v));
+        }
+        values.push(v);
     }
-    Ok(v)
+    if values.is_empty() {
+        return Err("-b must contain at least one value".to_string());
+    }
+    Ok(values)
 }
 
 fn parse_nonneg(value: &str) -> Result<f64, String> {
@@ -138,8 +154,20 @@ fn parse_nonneg(value: &str) -> Result<f64, String> {
     Ok(v)
 }
 
+fn parse_positive_usize(value: &str) -> Result<usize, String> {
+    let v = value
+        .parse::<usize>()
+        .map_err(|_| format!("invalid --nsites value: {}", value))?;
+    if v == 0 {
+        return Err("--nsites must be > 0".to_string());
+    }
+    Ok(v)
+}
+
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
+    let background = parse_background(&args.background)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
 
     let reader: Box<dyn BufRead> = if args.input == "-" {
         Box::new(BufReader::new(io::stdin().lock()))
@@ -153,13 +181,13 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     let matrix_type = args.matrix_type.to_matrix_type();
     let raw_motifs = match args.input_format {
-        InputFormat::Json => read_json(reader, args.pseudocount, matrix_type, args.background)?,
+        InputFormat::Json => read_json(reader, args.pseudocount, matrix_type, &background)?,
         InputFormat::Homer => read_homer(
             reader,
             args.pseudocount,
             matrix_type,
             args.alphabet.as_str(),
-            args.background,
+            &background,
         )?,
     };
 
@@ -188,7 +216,13 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let mut stdout = BufWriter::new(io::stdout().lock());
-    write_meme(&mut stdout, &processed_motifs)?;
+    write_meme(
+        &mut stdout,
+        &processed_motifs,
+        args.nsites,
+        args.evalue,
+        args.renormalize,
+    )?;
 
     Ok(())
 }

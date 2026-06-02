@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Regression coverage for CLI version reporting, Perl `VERSION_FROM` parsing, and MEME `alength=` conflicts.
 - Python and Rust unit tests for core IC, log-odds, reverse-complement, trimming, and format-writer behavior.
 - Explicit pytest configuration for the `tests/` suite.
+- README caveats for downstream interpretation of recalculated HOMER thresholds, `--input-format auto`, fixed MEME metadata, background handling, and formatted row-sum drift.
+- Warnings when recalculated HOMER thresholds clip to `0`, and when nonnegative rows fall near the `--input-format auto` row-sum boundary.
+- Default-off safety flags: `--nsites`, `--evalue`, `--renormalize`, `--keep-threshold`, and comma-separated background vectors for `-b`.
+- Regression coverage for zero-threshold warnings, auto-detection gray-zone warnings, MEME metadata overrides, row renormalization, and background vectors.
 
 ### Fixed
 - Perl PROTEIN information-content calculations now use the 20-letter maximum entropy.

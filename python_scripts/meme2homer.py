@@ -20,14 +20,18 @@ from motif_bridge import __version__
 from motif_bridge.io import read_meme, write_homer, write_json
 
 
-def bg_prob(value: str) -> float:
-    try:
-        v = float(value)
-    except ValueError as exc:
-        raise argparse.ArgumentTypeError(f"Invalid float value: {value}") from exc
-    if not (0 < v <= 1):
-        raise argparse.ArgumentTypeError("-b must be in (0, 1].")
-    return v
+def background_prob(value: str):
+    parts = value.split(",")
+    values = []
+    for part in parts:
+        try:
+            v = float(part)
+        except ValueError as exc:
+            raise argparse.ArgumentTypeError(f"Invalid -b value: {value}") from exc
+        if not (0 < v <= 1):
+            raise argparse.ArgumentTypeError("-b values must be in (0, 1].")
+        values.append(v)
+    return values if len(values) > 1 else values[0]
 
 
 def parse_args() -> argparse.Namespace:
@@ -39,6 +43,7 @@ def parse_args() -> argparse.Namespace:
             "  %(prog)s -i raw/motifs.meme -j JASPAR2026 > results/motifs.homer\n"
             "  %(prog)s -i raw/motifs.meme.gz -e MA0021.1\n"
             "  %(prog)s -i motifs.meme -b 0.25 -t 6\n"
+            "  %(prog)s -i motifs.meme -b 0.29,0.21,0.21,0.29\n"
             "  %(prog)s -i motifs.meme -f json > motifs.json\n"
             "  %(prog)s -i motifs.meme --alphabet ACGU\n"
             "  cat motifs.meme | %(prog)s -i -\n"
@@ -62,10 +67,10 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "-b",
-        metavar="<float>",
-        type=bg_prob,
+        metavar="<float[,float...]>",
+        type=background_prob,
         default=0.25,
-        help="Background nucleotide probability (default: 0.25)",
+        help="Background probability, either scalar or comma-separated vector (default: 0.25)",
     )
     parser.add_argument(
         "-t",
@@ -105,6 +110,16 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=0.0,
         help="Filter out motifs with total information content below threshold.",
+    )
+    parser.add_argument(
+        "--renormalize",
+        action="store_true",
+        help="Renormalize each row before writing HOMER output.",
+    )
+    parser.add_argument(
+        "--keep-threshold",
+        action="store_true",
+        help="Keep an existing Motif threshold when present instead of recalculating it.",
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     return parser.parse_args()
@@ -156,9 +171,18 @@ def main() -> None:
         if args.format == "json":
             write_json(processed_motifs, sys.stdout)
         else:
-            write_homer(processed_motifs, sys.stdout, background=args.b, threshold_offset=args.t)
+            write_homer(
+                processed_motifs,
+                sys.stdout,
+                background=args.b,
+                threshold_offset=args.t,
+                keep_threshold=args.keep_threshold,
+                renormalize=args.renormalize,
+            )
     except FileNotFoundError:
         sys.exit(f"Error: Cannot open file: {args.i}")
+    except ValueError as exc:
+        sys.exit(f"Error: {exc}")
     except BrokenPipeError:
         pass
     finally:

@@ -10,13 +10,15 @@ my $input       = '';
 my $db          = 'NA';
 my $motif_name  = '';
 my $extract     = '';
-my $bg          = 0.25;
+my $bg          = '0.25';
 my $t_offset    = 4;
 my $output_fmt  = 'homer';
 my $alphabet    = '';
 my $do_rc       = 0;
 my $trim_edges  = 0;
 my $min_ic      = 0;
+my $renormalize = 0;
+my $keep_threshold = 0;
 my $show_version = 0;
 
 GetOptions(
@@ -24,7 +26,7 @@ GetOptions(
     'j=s' => \$db,
     'k=s' => \$motif_name,
     'e=s' => \$extract,
-    'b=f' => \$bg,
+    'b=s' => \$bg,
     't=f' => \$t_offset,
     'f=s' => \$output_fmt,
     'format=s' => \$output_fmt,
@@ -32,6 +34,8 @@ GetOptions(
     'rc'    => \$do_rc,
     'trim-edges=f' => \$trim_edges,
     'min-ic=f' => \$min_ic,
+    'renormalize' => \$renormalize,
+    'keep-threshold' => \$keep_threshold,
     'version' => \$show_version,
     'h'   => sub { usage() },
 ) or usage();
@@ -42,7 +46,7 @@ if ($show_version) {
 }
 
 usage() unless $input;
-die "Error: -b must be in (0, 1].\n" unless $bg > 0 && $bg <= 1;
+my @background_values = parse_background($bg);
 my $alphabet_override = ($alphabet ne '');
 if ($alphabet_override) {
     die "Error: unknown alphabet: $alphabet\n" unless $alphabet =~ /^(ACGT|ACGU|PROTEIN)$/;
@@ -58,13 +62,15 @@ my %config = (
     db => $db,
     motif_name => $motif_name,
     extract => $extract,
-    bg => $bg,
+    bg => \@background_values,
     t_offset => $t_offset,
     output_fmt => $output_fmt,
     alphabet => $effective_alphabet,
     do_rc => $do_rc,
     trim_edges => $trim_edges,
     min_ic => $min_ic,
+    renormalize => $renormalize,
+    keep_threshold => $keep_threshold,
     expected_cols => length($ALPHABETS{$effective_alphabet} || $effective_alphabet),
 );
 
@@ -228,31 +234,70 @@ sub process_meme_motif {
             alphabet => $alphabet,
         };
     } else {
-        my $score = calculate_score(\@mat, $config->{bg}, $config->{t_offset});
-        print_motif($id, $desc, $score, \@mat);
+        my $score = calculate_score(\@mat, $config->{bg}, $config->{t_offset}, $config->{renormalize});
+        if ($score == 0) {
+            warn "Warning: HOMER threshold for motif '$id' was clipped to 0 "
+               . "(t_offset=$config->{t_offset}); scanning may be very permissive\n";
+        }
+        print_motif($id, $desc, $score, \@mat, $config->{renormalize});
     }
 }
 
 # ---------------------------------------------------------------------------
 
 sub calculate_score {
-    my ($matrix_ref, $bg, $t_offset) = @_;
+    my ($matrix_ref, $bg_ref, $t_offset, $renormalize) = @_;
     my $score = 0;
     foreach my $row (@$matrix_ref) {
-        my $max_p = 0;
-        foreach my $p (@$row) {
-            $max_p = $p if $p > $max_p;
+        my @values = $renormalize ? renormalized_row($row) : @$row;
+        my @bg = background_for_width($bg_ref, scalar(@values));
+        my $best_idx = 0;
+        for my $i (0 .. $#values) {
+            $best_idx = $i if $values[$i] > $values[$best_idx];
         }
-        $score += log2($max_p / $bg) if $max_p > 0;
+        my $max_p = $values[$best_idx];
+        $score += log2($max_p / $bg[$best_idx]) if $max_p > 0;
     }
     $score -= $t_offset;
     $score = 0 if $score < 0;
-    return sprintf('%.6f', $score);
+    return $score;
 }
 
 sub log2 {
     my ($x) = @_;
     return log($x) / log(2);
+}
+
+sub parse_background {
+    my ($value) = @_;
+    my @parts = split /,/, $value, -1;
+    die "Error: -b must contain at least one value.\n" unless @parts;
+    my @values;
+    foreach my $part (@parts) {
+        die "Error: invalid -b value: $value\n" unless $part =~ /^-?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
+        my $v = $part + 0;
+        die "Error: -b values must be in (0, 1].\n" unless $v > 0 && $v <= 1;
+        push @values, $v;
+    }
+    return @values;
+}
+
+sub background_for_width {
+    my ($bg_ref, $width) = @_;
+    if (scalar(@$bg_ref) == 1) {
+        return (($bg_ref->[0]) x $width);
+    }
+    die "Error: background length " . scalar(@$bg_ref) . " does not match row width $width\n"
+        unless scalar(@$bg_ref) == $width;
+    return @$bg_ref;
+}
+
+sub renormalized_row {
+    my ($row_ref) = @_;
+    my $sum = 0;
+    $sum += $_ for @$row_ref;
+    return @$row_ref unless $sum > 0;
+    return map { $_ / $sum } @$row_ref;
 }
 
 sub calculate_ic {
@@ -309,10 +354,11 @@ sub trim_edges {
 }
 
 sub print_motif {
-    my ($id, $desc, $score, $matrix_ref) = @_;
-    print ">$id\t$desc\t$score\t0\t0\t0\n";
+    my ($id, $desc, $score, $matrix_ref, $renormalize) = @_;
+    print ">$id\t$desc\t" . sprintf('%.6f', $score) . "\t0\t0\t0\n";
     foreach my $row (@$matrix_ref) {
-        print join("\t", map { sprintf('%.6f', $_) } @$row) . "\n";
+        my @values = $renormalize ? renormalized_row($row) : @$row;
+        print join("\t", map { sprintf('%.6f', $_) } @values) . "\n";
     }
 }
 
@@ -362,7 +408,7 @@ Options:
     -j <string>  Database name (default: NA)
     -k <string>  Motif name to use (default: name from MEME file)
     -e <string>  Extract only specified motif by id or name
-    -b <float>   Background probability (default: 0.25, uniform)
+    -b <float[,float...]> Background probability scalar or vector (default: 0.25)
     -t <float>   Threshold offset in log2 bits (default: 4)
     -f, --format <fmt>  Output format: homer (default) or json
     --alphabet <str> Alphabet override: ACGT (DNA), ACGU (RNA), or PROTEIN
@@ -370,12 +416,15 @@ Options:
     --rc                Output the reverse complement of the motif (DNA/RNA only)
     --trim-edges <float> Trim edges with information content below threshold
     --min-ic <float>    Filter out motifs with total information content below threshold
+    --renormalize        Renormalize each row before writing HOMER output
+    --keep-threshold     Keep an existing motif threshold when present
     -h           Show this help
 
 Examples:
     $0 -i raw/motifs.meme -j JASPAR2026 > results/motifs.homer
     $0 -i raw/motifs.meme.gz -e MA0021.1
     $0 -i motifs.meme -b 0.25 -t 6
+    $0 -i motifs.meme -b 0.29,0.21,0.21,0.29
     $0 -i motifs.meme -f json > motifs.json
     $0 -i motifs.meme --rc
     cat motifs.meme | $0 -i -

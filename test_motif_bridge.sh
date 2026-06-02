@@ -26,6 +26,7 @@
 #   13 - MEME MOTIF word-boundary parsing
 #   14 - Negative matrix value warnings
 #   15 - Version and parser metadata regressions
+#   16 - Safety warnings and default-off metadata flags
 #
 # Exit codes:
 #   0 - all tests passed
@@ -779,12 +780,12 @@ fi
 
 if run_stage 11 "--alphabet support"; then
 
-python3 "$PYTHON/meme2homer.py" -i "$FIXTURES/test_rna.meme" --alphabet ACGU > "$WORK_DIR/py_rna.homer" 2>&1
-perl "$PERL/meme2homer.pl" -i "$FIXTURES/test_rna.meme" --alphabet ACGU > "$WORK_DIR/pl_rna.homer" 2>&1
+python3 "$PYTHON/meme2homer.py" -i "$FIXTURES/test_rna.meme" --alphabet ACGU > "$WORK_DIR/py_rna.homer" 2> "$WORK_DIR/py_rna.err"
+perl "$PERL/meme2homer.pl" -i "$FIXTURES/test_rna.meme" --alphabet ACGU > "$WORK_DIR/pl_rna.homer" 2> "$WORK_DIR/pl_rna.err"
 check_diff "$WORK_DIR/py_rna.homer" "$WORK_DIR/pl_rna.homer" "Python vs Perl --alphabet ACGU"
 
 if [ -n "$RUST_BIN" ]; then
-    "$RUST_BIN/meme2homer" -i "$FIXTURES/test_rna.meme" --alphabet ACGU > "$WORK_DIR/rs_rna.homer" 2>&1
+    "$RUST_BIN/meme2homer" -i "$FIXTURES/test_rna.meme" --alphabet ACGU > "$WORK_DIR/rs_rna.homer" 2> "$WORK_DIR/rs_rna.err"
     check_diff "$WORK_DIR/py_rna.homer" "$WORK_DIR/rs_rna.homer" "Python vs Rust --alphabet ACGU"
 fi
 
@@ -1237,6 +1238,184 @@ if [ -n "$RUST_BIN" ]; then
     else
         fail "Rust warns on alength conflict" "$(cat "$WORK_DIR/rs_bad_alength.err")"
     fi
+fi
+
+echo ""
+fi
+
+# ---------------------------------------------------------------------------
+# Test 16: Safety warnings and default-off metadata flags
+# ---------------------------------------------------------------------------
+
+if run_stage 16 "Safety warnings and default-off metadata flags"; then
+
+cat > "$WORK_DIR/weak_threshold.meme" <<'EOF'
+MEME version 4
+
+ALPHABET= ACGT
+
+strands: + -
+
+Background letter frequencies
+A 0.25 C 0.25 G 0.25 T 0.25
+
+MOTIF WEAK weak_uniform
+
+letter-probability matrix: alength= 4 w= 2 nsites= 20 E= 0
+  0.25  0.25  0.25  0.25
+  0.25  0.25  0.25  0.25
+
+//
+EOF
+
+python3 "$PYTHON/meme2homer.py" -i "$WORK_DIR/weak_threshold.meme" > "$WORK_DIR/py_weak.homer" 2> "$WORK_DIR/py_weak.err"
+perl "$PERL/meme2homer.pl" -i "$WORK_DIR/weak_threshold.meme" > "$WORK_DIR/pl_weak.homer" 2> "$WORK_DIR/pl_weak.err"
+check_diff "$WORK_DIR/py_weak.homer" "$WORK_DIR/pl_weak.homer" "Python vs Perl zero-threshold output"
+
+if [ -n "$RUST_BIN" ]; then
+    "$RUST_BIN/meme2homer" -i "$WORK_DIR/weak_threshold.meme" > "$WORK_DIR/rs_weak.homer" 2> "$WORK_DIR/rs_weak.err"
+    check_diff "$WORK_DIR/py_weak.homer" "$WORK_DIR/rs_weak.homer" "Python vs Rust zero-threshold output"
+fi
+
+if grep -q "clipped to 0" "$WORK_DIR/py_weak.err"; then
+    pass "Python warns on zero HOMER threshold"
+else
+    fail "Python warns on zero HOMER threshold" "$(cat "$WORK_DIR/py_weak.err")"
+fi
+
+if grep -q "clipped to 0" "$WORK_DIR/pl_weak.err"; then
+    pass "Perl warns on zero HOMER threshold"
+else
+    fail "Perl warns on zero HOMER threshold" "$(cat "$WORK_DIR/pl_weak.err")"
+fi
+
+if [ -n "$RUST_BIN" ]; then
+    if grep -q "clipped to 0" "$WORK_DIR/rs_weak.err"; then
+        pass "Rust warns on zero HOMER threshold"
+    else
+        fail "Rust warns on zero HOMER threshold" "$(cat "$WORK_DIR/rs_weak.err")"
+    fi
+fi
+
+cat > "$WORK_DIR/gray_auto.homer" <<'EOF'
+>GRAY	gray zone row	1	0	0	0
+0.30	0.30	0.30	0.15
+EOF
+
+python3 "$PYTHON/homer2meme.py" -i "$WORK_DIR/gray_auto.homer" > "$WORK_DIR/py_gray.meme" 2> "$WORK_DIR/py_gray.err"
+perl "$PERL/homer2meme.pl" -i "$WORK_DIR/gray_auto.homer" > "$WORK_DIR/pl_gray.meme" 2> "$WORK_DIR/pl_gray.err"
+check_diff "$WORK_DIR/py_gray.meme" "$WORK_DIR/pl_gray.meme" "Python vs Perl auto gray-zone output"
+
+if [ -n "$RUST_BIN" ]; then
+    "$RUST_BIN/homer2meme" -i "$WORK_DIR/gray_auto.homer" > "$WORK_DIR/rs_gray.meme" 2> "$WORK_DIR/rs_gray.err"
+    check_diff "$WORK_DIR/py_gray.meme" "$WORK_DIR/rs_gray.meme" "Python vs Rust auto gray-zone output"
+fi
+
+if grep -q "auto-detection boundary" "$WORK_DIR/py_gray.err"; then
+    pass "Python warns on auto gray zone"
+else
+    fail "Python warns on auto gray zone" "$(cat "$WORK_DIR/py_gray.err")"
+fi
+
+if grep -q "auto-detection boundary" "$WORK_DIR/pl_gray.err"; then
+    pass "Perl warns on auto gray zone"
+else
+    fail "Perl warns on auto gray zone" "$(cat "$WORK_DIR/pl_gray.err")"
+fi
+
+if [ -n "$RUST_BIN" ]; then
+    if grep -q "auto-detection boundary" "$WORK_DIR/rs_gray.err"; then
+        pass "Rust warns on auto gray zone"
+    else
+        fail "Rust warns on auto gray zone" "$(cat "$WORK_DIR/rs_gray.err")"
+    fi
+fi
+
+python3 "$PYTHON/homer2meme.py" -i "$FIXTURES/test.homer" --nsites 4000 --evalue 0.00001 > "$WORK_DIR/py_meta.meme" 2> "$WORK_DIR/py_meta.err"
+perl "$PERL/homer2meme.pl" -i "$FIXTURES/test.homer" --nsites 4000 --evalue 0.00001 > "$WORK_DIR/pl_meta.meme" 2> "$WORK_DIR/pl_meta.err"
+check_diff "$WORK_DIR/py_meta.meme" "$WORK_DIR/pl_meta.meme" "Python vs Perl nsites/evalue overrides"
+
+if [ -n "$RUST_BIN" ]; then
+    "$RUST_BIN/homer2meme" -i "$FIXTURES/test.homer" --nsites 4000 --evalue 0.00001 > "$WORK_DIR/rs_meta.meme" 2> "$WORK_DIR/rs_meta.err"
+    check_diff "$WORK_DIR/py_meta.meme" "$WORK_DIR/rs_meta.meme" "Python vs Rust nsites/evalue overrides"
+fi
+
+if grep -q "nsites= 4000 E= 0.000010" "$WORK_DIR/py_meta.meme"; then
+    pass "homer2meme writes overridden nsites/evalue"
+else
+    fail "homer2meme writes overridden nsites/evalue" "$(grep 'letter-probability matrix:' "$WORK_DIR/py_meta.meme" | head -1)"
+fi
+
+cat > "$WORK_DIR/unnormalized.homer" <<'EOF'
+>UNNORM	unnormalized probability row	1	0	0	0
+0.20	0.20	0.20	0.20
+EOF
+
+python3 "$PYTHON/homer2meme.py" -i "$WORK_DIR/unnormalized.homer" --input-format probability --renormalize > "$WORK_DIR/py_renorm.meme" 2> "$WORK_DIR/py_renorm.err"
+perl "$PERL/homer2meme.pl" -i "$WORK_DIR/unnormalized.homer" --input-format probability --renormalize > "$WORK_DIR/pl_renorm.meme" 2> "$WORK_DIR/pl_renorm.err"
+check_diff "$WORK_DIR/py_renorm.meme" "$WORK_DIR/pl_renorm.meme" "Python vs Perl --renormalize"
+
+if [ -n "$RUST_BIN" ]; then
+    "$RUST_BIN/homer2meme" -i "$WORK_DIR/unnormalized.homer" --input-format probability --renormalize > "$WORK_DIR/rs_renorm.meme" 2> "$WORK_DIR/rs_renorm.err"
+    check_diff "$WORK_DIR/py_renorm.meme" "$WORK_DIR/rs_renorm.meme" "Python vs Rust --renormalize"
+fi
+
+if python3 -c "
+import sys
+vals = []
+with open('$WORK_DIR/py_renorm.meme') as f:
+    for line in f:
+        s = line.strip()
+        if s.startswith('0.'):
+            vals = [float(x) for x in s.split()]
+            break
+if not vals:
+    print('missing matrix row')
+    sys.exit(1)
+if abs(sum(vals) - 1.0) > 1e-6:
+    print(f'row sum is {sum(vals):.6f}')
+    sys.exit(1)
+print('OK')
+" > "$WORK_DIR/renorm_check.txt" 2>&1; then
+    pass "--renormalize writes rows summing to 1"
+else
+    fail "--renormalize writes rows summing to 1" "$(cat "$WORK_DIR/renorm_check.txt")"
+fi
+
+python3 "$PYTHON/meme2homer.py" -i "$FIXTURES/test.meme" -b 0.29,0.21,0.21,0.29 > "$WORK_DIR/py_bgvec.homer" 2> "$WORK_DIR/py_bgvec.err"
+perl "$PERL/meme2homer.pl" -i "$FIXTURES/test.meme" -b 0.29,0.21,0.21,0.29 > "$WORK_DIR/pl_bgvec.homer" 2> "$WORK_DIR/pl_bgvec.err"
+check_diff "$WORK_DIR/py_bgvec.homer" "$WORK_DIR/pl_bgvec.homer" "Python vs Perl meme2homer background vector"
+
+if [ -n "$RUST_BIN" ]; then
+    "$RUST_BIN/meme2homer" -i "$FIXTURES/test.meme" -b 0.29,0.21,0.21,0.29 > "$WORK_DIR/rs_bgvec.homer" 2> "$WORK_DIR/rs_bgvec.err"
+    check_diff "$WORK_DIR/py_bgvec.homer" "$WORK_DIR/rs_bgvec.homer" "Python vs Rust meme2homer background vector"
+fi
+
+python3 "$PYTHON/homer2meme.py" -i "$FIXTURES/test_logodds.homer" --input-format logodds -b 0.29,0.21,0.21,0.29 > "$WORK_DIR/py_logodds_bgvec.meme" 2> "$WORK_DIR/py_logodds_bgvec.err"
+perl "$PERL/homer2meme.pl" -i "$FIXTURES/test_logodds.homer" --input-format logodds -b 0.29,0.21,0.21,0.29 > "$WORK_DIR/pl_logodds_bgvec.meme" 2> "$WORK_DIR/pl_logodds_bgvec.err"
+check_diff "$WORK_DIR/py_logodds_bgvec.meme" "$WORK_DIR/pl_logodds_bgvec.meme" "Python vs Perl homer2meme background vector"
+
+if [ -n "$RUST_BIN" ]; then
+    "$RUST_BIN/homer2meme" -i "$FIXTURES/test_logodds.homer" --input-format logodds -b 0.29,0.21,0.21,0.29 > "$WORK_DIR/rs_logodds_bgvec.meme" 2> "$WORK_DIR/rs_logodds_bgvec.err"
+    check_diff "$WORK_DIR/py_logodds_bgvec.meme" "$WORK_DIR/rs_logodds_bgvec.meme" "Python vs Rust homer2meme background vector"
+fi
+
+if python3 -c "
+from io import StringIO
+from motif_bridge.io import read_homer, write_homer
+source = '>KEEP\\tdesc\\t9.5\\t0\\t0\\t0\\n0.25\\t0.25\\t0.25\\t0.25\\n'
+motifs = list(read_homer(StringIO(source), input_format='probability'))
+out = StringIO()
+write_homer(motifs, out, keep_threshold=True)
+header = out.getvalue().splitlines()[0]
+if '\\t9.500000\\t' not in header:
+    print(header)
+    raise SystemExit(1)
+print('OK')
+" > "$WORK_DIR/keep_threshold_check.txt" 2>&1; then
+    pass "Python write_homer can keep source threshold"
+else
+    fail "Python write_homer can keep source threshold" "$(cat "$WORK_DIR/keep_threshold_check.txt")"
 fi
 
 echo ""

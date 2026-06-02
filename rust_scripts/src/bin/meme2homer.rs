@@ -39,9 +39,9 @@ struct Args {
     /// Extract only specified motif by id or name
     #[arg(short = 'e', default_value = "")]
     extract: String,
-    /// Background probability in (0, 1]
-    #[arg(short = 'b', value_parser = parse_prob, default_value = "0.25")]
-    bg: f64,
+    /// Background probability scalar or comma-separated vector
+    #[arg(short = 'b', default_value = "0.25")]
+    bg: String,
     /// Threshold offset in log2 bits
     #[arg(short = 't', default_value = "4.0")]
     t_offset: f64,
@@ -60,6 +60,12 @@ struct Args {
     /// Filter out motifs with total information content below threshold
     #[arg(long = "min-ic", value_parser = parse_nonneg, default_value = "0.0")]
     min_ic: f64,
+    /// Renormalize each row before writing HOMER output
+    #[arg(long = "renormalize", action = ArgAction::SetTrue)]
+    renormalize: bool,
+    /// Keep an existing motif threshold when present
+    #[arg(long = "keep-threshold", action = ArgAction::SetTrue)]
+    keep_threshold: bool,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -90,14 +96,21 @@ impl Alphabet {
     }
 }
 
-fn parse_prob(value: &str) -> Result<f64, String> {
-    let v = value
-        .parse::<f64>()
-        .map_err(|_| format!("invalid -b value: {}", value))?;
-    if v <= 0.0 || v > 1.0 {
-        return Err(format!("-b must be in (0, 1], got {}", v));
+fn parse_background(value: &str) -> Result<Vec<f64>, String> {
+    let mut values = Vec::new();
+    for part in value.split(',') {
+        let v = part
+            .parse::<f64>()
+            .map_err(|_| format!("invalid -b value: {}", value))?;
+        if v <= 0.0 || v > 1.0 {
+            return Err(format!("-b values must be in (0, 1], got {}", v));
+        }
+        values.push(v);
     }
-    Ok(v)
+    if values.is_empty() {
+        return Err("-b must contain at least one value".to_string());
+    }
+    Ok(values)
 }
 
 fn parse_nonneg(value: &str) -> Result<f64, String> {
@@ -112,6 +125,8 @@ fn parse_nonneg(value: &str) -> Result<f64, String> {
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
+    let bg =
+        parse_background(&args.bg).map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
 
     let reader: Box<dyn BufRead> = if args.input == "-" {
         Box::new(BufReader::new(io::stdin().lock()))
@@ -160,7 +175,14 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut stdout = BufWriter::new(io::stdout().lock());
     match args.output_format {
         OutputFormat::Json => write_json(&mut stdout, &processed_motifs)?,
-        OutputFormat::Homer => write_homer(&mut stdout, &processed_motifs, args.bg, args.t_offset)?,
+        OutputFormat::Homer => write_homer(
+            &mut stdout,
+            &processed_motifs,
+            &bg,
+            args.t_offset,
+            args.keep_threshold,
+            args.renormalize,
+        )?,
     }
 
     Ok(())

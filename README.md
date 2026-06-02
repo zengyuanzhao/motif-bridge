@@ -162,13 +162,15 @@ cd rust_scripts && cargo build --release && cd ..
 | `-j <string>` | Database name appended to motif description | `NA` |
 | `-k <string>` | Override motif name from file | *(from file)* |
 | `-e <string>` | Extract only the specified motif by ID or name | *(all motifs)* |
-| `-b <float>` | Background probability used for HOMER threshold calculation | `0.25` |
+| `-b <float[,float...]>` | Background probability used for HOMER threshold calculation; scalar or per-column vector | `0.25` |
 | `-t <float>` | Threshold offset subtracted from log-odds score (log2 bits) | `4.0` |
 | `-f, --format <fmt>` | Output format: `homer` or `json` | `homer` |
 | `--alphabet <string>` | Alphabet override (`ACGT`, `ACGU`, or `PROTEIN`) | *(auto from MEME header)* |
 | `--rc` | Output the reverse complement of the motif (DNA/RNA only) | *(off)* |
 | `--trim-edges <float>` | Trim edges with Information Content below threshold | `0.0` |
 | `--min-ic <float>` | Filter out motifs with total Information Content below threshold | `0.0` |
+| `--renormalize` | Renormalize rows before writing HOMER output | *(off)* |
+| `--keep-threshold` | Keep an existing motif threshold when present instead of recalculating | *(off)* |
 | `--version` | Show version and exit | |
 | `-h` | Show help | |
 
@@ -179,17 +181,20 @@ cd rust_scripts && cargo build --release && cd ..
 | `-i <file>` | Input HOMER motif file (`-` for stdin, `.gz` supported, `.json` supported) | *(required)* |
 | `-e <string>` | Extract only the specified motif by ID or description | *(all motifs)* |
 | `-a <float>` | Pseudocount for log-odds to probability conversion | `0.01` |
-| `-b <float>` | Background probability for log-odds conversion | `0.25` |
+| `-b <float[,float...]>` | Background probability for log-odds conversion; scalar or per-column vector | `0.25` |
 | `-f, --format <fmt>` | Input format: `homer` or `json` | `homer` |
 | `--input-format <fmt>` | Matrix type: `auto`, `logodds`, or `probability` | `auto` |
 | `--alphabet <string>` | Alphabet (`ACGT`, `ACGU`, or `PROTEIN`) | `ACGT` |
 | `--rc` | Output the reverse complement of the motif (DNA/RNA only) | *(off)* |
 | `--trim-edges <float>` | Trim edges with Information Content below threshold | `0.0` |
 | `--min-ic <float>` | Filter out motifs with total Information Content below threshold | `0.0` |
+| `--nsites <int>` | Override MEME `nsites` metadata in output | `20` |
+| `--evalue <float>` | Override MEME `E` metadata in output | `0` |
+| `--renormalize` | Renormalize rows before writing MEME output | *(off)* |
 | `--version` | Show version and exit | |
 | `-h` | Show help | |
 
-Note: `homer2meme` auto-detects log-odds vs probability rows by checking whether row sum is near 1.0 (`[0.98, 1.02]`). This is a practical heuristic and may be ambiguous for edge-case inputs whose log-odds rows also sum near 1.0. When the source format is known, prefer `--input-format logodds` or `--input-format probability` to avoid misclassification.
+Note: `homer2meme` auto-detects log-odds vs probability rows by checking whether row sum is near 1.0 (`[0.98, 1.02]`). This is a practical heuristic and may be ambiguous for edge-case inputs whose rows are nonnegative and sum close to the boundary. When the source format is known, prefer `--input-format logodds` or `--input-format probability` to avoid misclassification.
 
 ---
 
@@ -254,7 +259,7 @@ meme2homer -i motifs.meme -f json > motifs.json
 homer2meme -i motifs.json -f json > motifs.meme
 ```
 
-Each JSON motif stores `id`, `description`, `alphabet`, and `matrix`. Unicode motif descriptions are preserved.
+Each JSON motif stores `id`, `description`, `alphabet`, and `matrix`; `threshold` is included only when it is present on the motif object. Unicode motif descriptions are preserved.
 
 For JSON input containing mixed alphabets, `homer2meme` writes one MEME file using the alphabet of the first emitted motif. Later motifs with incompatible alphabets are skipped with warnings.
 
@@ -343,7 +348,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Write to a new HOMER file
     let out_file = File::create("processed.homer")?;
     let mut writer = BufWriter::new(out_file);
-    write_homer(&mut writer, &motifs, 0.25, 4.0)?;
+    write_homer(&mut writer, &motifs, &[0.25], 4.0, false, false)?;
 
     Ok(())
 }
@@ -358,10 +363,20 @@ The current converters focus on matrix-level conversion. During conversion, some
 | Direction | Metadata behavior |
 |---|---|
 | MEME to HOMER | HOMER `log-p`, `pseudo`, and `sites` are written as `0`; threshold is recalculated from the matrix |
-| HOMER to MEME | MEME `nsites` is written as `20`; `E` is written as `0` |
+| HOMER to MEME | MEME `nsites` is written as `20`; `E` is written as `0` unless overridden with `--nsites` / `--evalue` |
 | Both directions | Matrix values are printed to six decimal places |
 
 For this reason, round-trip conversion should be interpreted as matrix-level consistency rather than byte-for-byte recovery of the original file.
+
+### Downstream Interpretation Caveats
+
+The converted files are suitable as matrix-level exchange artifacts, but they should not be treated as statistically identical to the source files in motif-scanning workflows.
+
+- HOMER thresholds are recalculated during `meme2homer` output as `sum(log2(max_prob / background)) - t_offset`, then clipped to be non-negative. A warning is emitted when the calculated threshold clips to `0`, because HOMER scans may become very permissive. Original HOMER detection thresholds are not preserved through plain `homer2meme` -> `meme2homer` text round trips; library callers can retain a parsed threshold with `write_homer(..., keep_threshold=True)`.
+- `homer2meme --input-format auto` classifies rows as probabilities only when the row sum is near 1.0 (`[0.98, 1.02]`). This is practical for standard HOMER known motifs, but rounded, counted, or externally generated matrices can be misclassified. Nonnegative rows close to the auto boundary emit a warning. For reproducible analyses, pass `--input-format probability` or `--input-format logodds` explicitly.
+- MEME `nsites` and `E` metadata are regenerated as `nsites= 20` and `E= 0` by default. Tools such as FIMO or TOMTOM can use `nsites` in pseudocount or statistical calculations, so pass `--nsites` / `--evalue` when source-specific values matter downstream.
+- Background defaults are uniform (`0.25`). The `-b` option can now be either a scalar or a comma-separated per-column vector, for example `-b 0.29,0.21,0.21,0.29`, used by threshold and log-odds conversions. It is still not a full downstream scanner background model, so retune or validate thresholds when scanner background assumptions matter.
+- Matrix rows are printed to six decimal places and are not renormalized by default. Most motif tools tolerate tiny row-sum drift, but strict consumers can use `--renormalize` to scale each row before writing.
 
 ---
 

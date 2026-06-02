@@ -11,6 +11,7 @@ pub struct Motif {
     pub description: String,
     pub matrix: Vec<Vec<f64>>,
     pub alphabet: String,
+    pub threshold: Option<f64>,
 }
 
 impl Motif {
@@ -20,23 +21,55 @@ impl Motif {
             description,
             matrix,
             alphabet,
+            threshold: None,
         }
     }
 
-    pub fn calculate_score(&self, bg: f64, t_offset: f64) -> f64 {
-        let raw: f64 = self
-            .matrix
-            .iter()
-            .map(|row| {
-                let max_p = row.iter().cloned().fold(0.0_f64, f64::max);
-                if max_p > 0.0 {
-                    (max_p / bg).log2()
-                } else {
-                    0.0
-                }
-            })
-            .sum();
-        (raw - t_offset).max(0.0)
+    pub fn with_threshold(
+        id: String,
+        description: String,
+        matrix: Vec<Vec<f64>>,
+        alphabet: String,
+        threshold: Option<f64>,
+    ) -> Self {
+        Self {
+            id,
+            description,
+            matrix,
+            alphabet,
+            threshold,
+        }
+    }
+
+    pub fn calculate_score(
+        &self,
+        bg: &[f64],
+        t_offset: f64,
+        renormalize: bool,
+    ) -> Result<f64, MotifError> {
+        let mut raw = 0.0;
+        for row in &self.matrix {
+            if row.is_empty() {
+                continue;
+            }
+            let values = if renormalize {
+                renormalized(row)
+            } else {
+                row.clone()
+            };
+            let backgrounds = background_values(bg, values.len())?;
+            let best_idx = values
+                .iter()
+                .enumerate()
+                .max_by(|(_, a), (_, b)| a.total_cmp(b))
+                .map(|(i, _)| i)
+                .unwrap_or(0);
+            let max_p = values[best_idx];
+            if max_p > 0.0 {
+                raw += (max_p / backgrounds[best_idx]).log2();
+            }
+        }
+        Ok((raw - t_offset).max(0.0))
     }
 
     pub fn calculate_ic(&self) -> Vec<f64> {
@@ -104,6 +137,39 @@ impl Motif {
     }
 
     // Direct-print helpers removed; use io::write_homer/write_meme for output.
+}
+
+pub fn background_values(bg: &[f64], width: usize) -> Result<Vec<f64>, MotifError> {
+    if bg.len() == 1 {
+        if bg[0] <= 0.0 {
+            return Err(MotifError::Operation(
+                "background values must be > 0".to_string(),
+            ));
+        }
+        return Ok(vec![bg[0]; width]);
+    }
+    if bg.len() != width {
+        return Err(MotifError::Operation(format!(
+            "background length {} does not match row width {}",
+            bg.len(),
+            width
+        )));
+    }
+    if bg.iter().any(|v| *v <= 0.0) {
+        return Err(MotifError::Operation(
+            "background values must be > 0".to_string(),
+        ));
+    }
+    Ok(bg.to_vec())
+}
+
+pub fn renormalized(row: &[f64]) -> Vec<f64> {
+    let total: f64 = row.iter().sum();
+    if total > 0.0 {
+        row.iter().map(|v| v / total).collect()
+    } else {
+        row.to_vec()
+    }
 }
 
 #[cfg(test)]
@@ -203,5 +269,37 @@ mod tests {
             motif.matrix,
             vec![vec![1.0, 0.0, 0.0, 0.0], vec![0.0, 1.0, 0.0, 0.0]]
         );
+    }
+
+    #[test]
+    fn calculate_score_uses_column_specific_background() {
+        let motif = Motif::new(
+            "m1".to_string(),
+            "dna".to_string(),
+            vec![vec![0.1, 0.2, 0.3, 0.4], vec![0.6, 0.2, 0.1, 0.1]],
+            "ACGT".to_string(),
+        );
+
+        let score = motif
+            .calculate_score(&[0.30, 0.20, 0.20, 0.30], 0.0, false)
+            .unwrap();
+
+        assert_close(score, (0.4_f64 / 0.30).log2() + (0.6_f64 / 0.30).log2());
+    }
+
+    #[test]
+    fn calculate_score_rejects_background_width_mismatch() {
+        let motif = Motif::new(
+            "m1".to_string(),
+            "dna".to_string(),
+            vec![vec![0.25, 0.25, 0.25, 0.25]],
+            "ACGT".to_string(),
+        );
+
+        let err = motif
+            .calculate_score(&[0.25, 0.25], 0.0, false)
+            .unwrap_err();
+
+        assert!(err.to_string().contains("background length"));
     }
 }

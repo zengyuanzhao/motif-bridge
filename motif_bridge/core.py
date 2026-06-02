@@ -1,16 +1,41 @@
 import math
 import sys
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Sequence, Union
+
+Background = Union[float, Sequence[float]]
+
+
+def _background_values(background: Background, width: int) -> List[float]:
+    if isinstance(background, (list, tuple)):
+        values = [float(v) for v in background]
+        if len(values) != width:
+            raise ValueError(f"background length {len(values)} does not match row width {width}")
+    else:
+        values = [float(background)] * width
+    if any(v <= 0 for v in values):
+        raise ValueError("background values must be > 0")
+    return values
+
+
+def _renormalized(row: List[float]) -> List[float]:
+    total = sum(row)
+    return [v / total for v in row] if total > 0 else row[:]
 
 
 class Motif:
     def __init__(
-        self, id: str, description: str, matrix: List[List[float]], alphabet: str = "ACGT"
+        self,
+        id: str,
+        description: str,
+        matrix: List[List[float]],
+        alphabet: str = "ACGT",
+        threshold: Optional[float] = None,
     ):
         self.id = id
         self.description = description
         self.matrix = matrix
         self.alphabet = alphabet
+        self.threshold = threshold
 
     def calculate_ic(self) -> List[float]:
         """Calculate Information Content for each position."""
@@ -73,19 +98,29 @@ class Motif:
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialize motif to dictionary."""
-        return {
+        data = {
             "id": self.id,
             "description": self.description,
             "matrix": [row[:] for row in self.matrix],
             "alphabet": self.alphabet,
         }
+        if self.threshold is not None:
+            data["threshold"] = self.threshold
+        return data
 
-    def calculate_score(self, bg: float, t_offset: float) -> float:
+    def calculate_score(
+        self, bg: Background, t_offset: float, renormalize: bool = False
+    ) -> float:
         """Calculate HOMER log-odds threshold from a probability matrix."""
         score = 0.0
         for row in self.matrix:
-            max_p = max(row) if row else 0.0
+            if not row:
+                continue
+            values = _renormalized(row) if renormalize else row
+            backgrounds = _background_values(bg, len(values))
+            best_idx = max(range(len(values)), key=values.__getitem__)
+            max_p = values[best_idx]
             if max_p > 0:
-                score += math.log2(max_p / bg)
+                score += math.log2(max_p / backgrounds[best_idx])
         score -= t_offset
         return max(score, 0.0)

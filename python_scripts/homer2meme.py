@@ -32,13 +32,37 @@ def positive_float(value: str) -> float:
     return v
 
 
-def background_prob(value: str) -> float:
+def background_prob(value: str):
+    parts = value.split(",")
+    values = []
+    for part in parts:
+        try:
+            v = float(part)
+        except ValueError as exc:
+            raise argparse.ArgumentTypeError(f"Invalid -b value: {value}") from exc
+        if not (0 < v <= 1):
+            raise argparse.ArgumentTypeError("-b values must be in (0, 1].")
+        values.append(v)
+    return values if len(values) > 1 else values[0]
+
+
+def positive_int(value: str) -> int:
+    try:
+        v = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"Invalid integer value: {value}") from exc
+    if v <= 0:
+        raise argparse.ArgumentTypeError("--nsites must be > 0.")
+    return v
+
+
+def nonnegative_float(value: str) -> float:
     try:
         v = float(value)
     except ValueError as exc:
         raise argparse.ArgumentTypeError(f"Invalid float value: {value}") from exc
-    if not (0 < v <= 1):
-        raise argparse.ArgumentTypeError("-b must be in (0, 1].")
+    if v < 0:
+        raise argparse.ArgumentTypeError("--evalue must be >= 0.")
     return v
 
 
@@ -54,6 +78,7 @@ def parse_args() -> argparse.Namespace:
             "  %(prog)s -i motifs.json -f json > motifs.meme\n"
             "  %(prog)s -i motifs.homer --input-format logodds\n"
             "  %(prog)s -i motifs.homer --input-format logodds -b 0.2\n"
+            "  %(prog)s -i motifs.homer --input-format logodds -b 0.29,0.21,0.21,0.29\n"
             "  %(prog)s -i motifs.homer --alphabet ACGU\n"
             "  cat motifs.homer | %(prog)s -i -\n"
         ),
@@ -80,10 +105,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "-b",
         "--background",
-        metavar="<float>",
+        metavar="<float[,float...]>",
         type=background_prob,
         default=0.25,
-        help="Background probability for log-odds conversion (default: 0.25)",
+        help="Background probability, either scalar or comma-separated vector (default: 0.25)",
     )
     parser.add_argument(
         "-f",
@@ -122,6 +147,25 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=0.0,
         help="Filter out motifs with total information content below threshold.",
+    )
+    parser.add_argument(
+        "--nsites",
+        metavar="<int>",
+        type=positive_int,
+        default=None,
+        help="Override MEME nsites metadata in output.",
+    )
+    parser.add_argument(
+        "--evalue",
+        metavar="<float>",
+        type=nonnegative_float,
+        default=None,
+        help="Override MEME E metadata in output.",
+    )
+    parser.add_argument(
+        "--renormalize",
+        action="store_true",
+        help="Renormalize each row before writing MEME output.",
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     return parser.parse_args()
@@ -179,10 +223,18 @@ def main() -> None:
             )
 
         processed_motifs = process_motifs(raw_motifs, args)
-        write_meme(processed_motifs, sys.stdout)
+        write_meme(
+            processed_motifs,
+            sys.stdout,
+            nsites=args.nsites,
+            evalue=args.evalue,
+            renormalize=args.renormalize,
+        )
 
     except FileNotFoundError:
         sys.exit(f"Error: Cannot open file: {args.i}")
+    except ValueError as exc:
+        sys.exit(f"Error: {exc}")
     except BrokenPipeError:
         pass
     finally:
