@@ -603,6 +603,25 @@ else
     fail "JSON output structure validation" "$(cat "$WORK_DIR/json_check.txt")"
 fi
 
+if python3 -c "
+import json, sys
+with open('$WORK_DIR/py_json.json') as f:
+    data = json.load(f)
+motifs = data.get('motifs', [])
+expected_nsites = [4000, 1500]
+if [m.get('nsites') for m in motifs] != expected_nsites:
+    print('Unexpected nsites metadata:', [m.get('nsites') for m in motifs])
+    sys.exit(1)
+if any(m.get('evalue') != 0.0 for m in motifs):
+    print('Unexpected evalue metadata:', [m.get('evalue') for m in motifs])
+    sys.exit(1)
+print('OK')
+" > "$WORK_DIR/json_metadata_check.txt" 2>&1; then
+    pass "JSON output preserves MEME nsites/evalue metadata"
+else
+    fail "JSON output preserves MEME nsites/evalue metadata" "$(cat "$WORK_DIR/json_metadata_check.txt")"
+fi
+
 # JSON round-trip: meme -> json -> meme
 python3 "$PYTHON/meme2homer.py" -i "$FIXTURES/test.meme" -j JASPAR2026 -f json > "$WORK_DIR/rt_json.json" 2>&1
 python3 "$PYTHON/homer2meme.py" -i "$WORK_DIR/rt_json.json" -f json > "$WORK_DIR/rt_json_meme.meme" 2>&1
@@ -1400,22 +1419,92 @@ if [ -n "$RUST_BIN" ]; then
     check_diff "$WORK_DIR/py_logodds_bgvec.meme" "$WORK_DIR/rs_logodds_bgvec.meme" "Python vs Rust homer2meme background vector"
 fi
 
+if python3 "$PYTHON/meme2homer.py" -i "$FIXTURES/test.meme" -b 0.5,0.5,0.5,0.5 > "$WORK_DIR/py_bad_bgsum.out" 2> "$WORK_DIR/py_bad_bgsum.err"; then
+    fail "Python rejects background vector sum mismatch" "$(cat "$WORK_DIR/py_bad_bgsum.out")"
+else
+    if grep -q "sum to 1.0" "$WORK_DIR/py_bad_bgsum.err"; then
+        pass "Python rejects background vector sum mismatch"
+    else
+        fail "Python rejects background vector sum mismatch" "$(cat "$WORK_DIR/py_bad_bgsum.err")"
+    fi
+fi
+
+if perl "$PERL/meme2homer.pl" -i "$FIXTURES/test.meme" -b 0.5,0.5,0.5,0.5 > "$WORK_DIR/pl_bad_bgsum.out" 2> "$WORK_DIR/pl_bad_bgsum.err"; then
+    fail "Perl rejects background vector sum mismatch" "$(cat "$WORK_DIR/pl_bad_bgsum.out")"
+else
+    if grep -q "sum to 1.0" "$WORK_DIR/pl_bad_bgsum.err"; then
+        pass "Perl rejects background vector sum mismatch"
+    else
+        fail "Perl rejects background vector sum mismatch" "$(cat "$WORK_DIR/pl_bad_bgsum.err")"
+    fi
+fi
+
+if [ -n "$RUST_BIN" ]; then
+    if "$RUST_BIN/meme2homer" -i "$FIXTURES/test.meme" -b 0.5,0.5,0.5,0.5 > "$WORK_DIR/rs_bad_bgsum.out" 2> "$WORK_DIR/rs_bad_bgsum.err"; then
+        fail "Rust rejects background vector sum mismatch" "$(cat "$WORK_DIR/rs_bad_bgsum.out")"
+    else
+        if grep -q "sum to 1.0" "$WORK_DIR/rs_bad_bgsum.err"; then
+            pass "Rust rejects background vector sum mismatch"
+        else
+            fail "Rust rejects background vector sum mismatch" "$(cat "$WORK_DIR/rs_bad_bgsum.err")"
+        fi
+    fi
+fi
+
+if python3 "$PYTHON/homer2meme.py" -i "$FIXTURES/test_logodds.homer" --input-format logodds -b 0.5,0.5 > "$WORK_DIR/py_bad_bglen.out" 2> "$WORK_DIR/py_bad_bglen.err"; then
+    fail "Python rejects background vector length mismatch" "$(cat "$WORK_DIR/py_bad_bglen.out")"
+else
+    if grep -q "background length" "$WORK_DIR/py_bad_bglen.err"; then
+        pass "Python rejects background vector length mismatch"
+    else
+        fail "Python rejects background vector length mismatch" "$(cat "$WORK_DIR/py_bad_bglen.err")"
+    fi
+fi
+
+if perl "$PERL/homer2meme.pl" -i "$FIXTURES/test_logodds.homer" --input-format logodds -b 0.5,0.5 > "$WORK_DIR/pl_bad_bglen.out" 2> "$WORK_DIR/pl_bad_bglen.err"; then
+    fail "Perl rejects background vector length mismatch" "$(cat "$WORK_DIR/pl_bad_bglen.out")"
+else
+    if grep -q "background length" "$WORK_DIR/pl_bad_bglen.err"; then
+        pass "Perl rejects background vector length mismatch"
+    else
+        fail "Perl rejects background vector length mismatch" "$(cat "$WORK_DIR/pl_bad_bglen.err")"
+    fi
+fi
+
+if [ -n "$RUST_BIN" ]; then
+    if "$RUST_BIN/homer2meme" -i "$FIXTURES/test_logodds.homer" --input-format logodds -b 0.5,0.5 > "$WORK_DIR/rs_bad_bglen.out" 2> "$WORK_DIR/rs_bad_bglen.err"; then
+        fail "Rust rejects background vector length mismatch" "$(cat "$WORK_DIR/rs_bad_bglen.out")"
+    else
+        if grep -q "background length" "$WORK_DIR/rs_bad_bglen.err"; then
+            pass "Rust rejects background vector length mismatch"
+        else
+            fail "Rust rejects background vector length mismatch" "$(cat "$WORK_DIR/rs_bad_bglen.err")"
+        fi
+    fi
+fi
+
 if python3 -c "
 from io import StringIO
-from motif_bridge.io import read_homer, write_homer
+from motif_bridge.io import read_homer, read_json, write_homer, write_json
 source = '>KEEP\\tdesc\\t9.5\\t0\\t0\\t0\\n0.25\\t0.25\\t0.25\\t0.25\\n'
 motifs = list(read_homer(StringIO(source), input_format='probability'))
+json_out = StringIO()
+write_json(motifs, json_out)
+if '\"threshold\": 9.500000' not in json_out.getvalue():
+    print(json_out.getvalue())
+    raise SystemExit(1)
+round_trip = list(read_json(StringIO(json_out.getvalue()), input_format='probability'))
 out = StringIO()
-write_homer(motifs, out, keep_threshold=True)
+write_homer(round_trip, out, keep_threshold=True)
 header = out.getvalue().splitlines()[0]
 if '\\t9.500000\\t' not in header:
     print(header)
     raise SystemExit(1)
 print('OK')
 " > "$WORK_DIR/keep_threshold_check.txt" 2>&1; then
-    pass "Python write_homer can keep source threshold"
+    pass "Python JSON threshold round-trip can keep source threshold"
 else
-    fail "Python write_homer can keep source threshold" "$(cat "$WORK_DIR/keep_threshold_check.txt")"
+    fail "Python JSON threshold round-trip can keep source threshold" "$(cat "$WORK_DIR/keep_threshold_check.txt")"
 fi
 
 echo ""

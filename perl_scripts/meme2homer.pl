@@ -93,6 +93,8 @@ my $in_motif  = 0;
 my $in_matrix = 0;
 my $motif_id  = '';
 my $description = '';
+my $motif_nsites;
+my $motif_evalue;
 my @matrix;
 my @motifs;
 
@@ -110,7 +112,7 @@ while (<$fh>) {
 
     if (/^MOTIF\s+(\S+)(?:\s+(.*))?/) {
         if ($in_motif && @matrix) {
-            process_meme_motif($motif_id, $description, \@matrix, \%config, \@motifs);
+            process_meme_motif($motif_id, $description, \@matrix, \%config, \@motifs, $motif_nsites, $motif_evalue);
         }
 
         $in_motif  = 1;
@@ -121,6 +123,8 @@ while (<$fh>) {
         $original_name =~ s/^\s+|\s+$//g;
 
         $description = $motif_name ? "$motif_name/$db" : "$original_name/$db";
+        $motif_nsites = undef;
+        $motif_evalue = undef;
 
         if ($extract && $motif_id ne $extract && $original_name ne $extract) {
             $in_motif = 0;
@@ -141,6 +145,12 @@ while (<$fh>) {
 
     if (/^letter-probability matrix:/) {
         $in_matrix = 1;
+        if (/nsites=\s*(\d+)/) {
+            $motif_nsites = $1 + 0;
+        }
+        if (/E=\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)/) {
+            $motif_evalue = $1 + 0;
+        }
         if (/alength=\s*(\d+)/) {
             my $alength = $1;
             if ($alength != $config{expected_cols}) {
@@ -158,7 +168,7 @@ while (<$fh>) {
     }
     if (/^\/\//) {
         if (@matrix) {
-            process_meme_motif($motif_id, $description, \@matrix, \%config, \@motifs);
+            process_meme_motif($motif_id, $description, \@matrix, \%config, \@motifs, $motif_nsites, $motif_evalue);
         }
         $in_motif  = 0;
         $in_matrix = 0;
@@ -182,7 +192,7 @@ while (<$fh>) {
 }
 
 if ($in_motif && @matrix) {
-    process_meme_motif($motif_id, $description, \@matrix, \%config, \@motifs);
+    process_meme_motif($motif_id, $description, \@matrix, \%config, \@motifs, $motif_nsites, $motif_evalue);
 }
 
 if ($input ne '-') {
@@ -200,7 +210,7 @@ if ($config{output_fmt} eq 'json') {
 # ---------------------------------------------------------------------------
 
 sub process_meme_motif {
-    my ($id, $desc, $matrix_ref, $config, $motifs_ref) = @_;
+    my ($id, $desc, $matrix_ref, $config, $motifs_ref, $nsites, $evalue) = @_;
 
     my @mat = @$matrix_ref;
     my $alphabet = $config->{alphabet};
@@ -232,6 +242,8 @@ sub process_meme_motif {
             description => $desc,
             matrix => [map { [@$_] } @mat],
             alphabet => $alphabet,
+            (defined $nsites ? (nsites => $nsites) : ()),
+            (defined $evalue ? (evalue => $evalue) : ()),
         };
     } else {
         my $score = calculate_score(\@mat, $config->{bg}, $config->{t_offset}, $config->{renormalize});
@@ -278,6 +290,11 @@ sub parse_background {
         my $v = $part + 0;
         die "Error: -b values must be in (0, 1].\n" unless $v > 0 && $v <= 1;
         push @values, $v;
+    }
+    if (scalar(@values) > 1) {
+        my $sum = 0;
+        $sum += $_ for @values;
+        die "Error: -b vector must sum to 1.0.\n" if abs($sum - 1.0) > 1e-3;
     }
     return @values;
 }
@@ -376,6 +393,8 @@ sub print_json {
         print "      \"id\": " . $encoder->encode($m->{id}) . ",\n";
         print "      \"description\": " . $encoder->encode($m->{description}) . ",\n";
         print "      \"alphabet\": " . $encoder->encode($m->{alphabet}) . ",\n" if $m->{alphabet};
+        print "      \"nsites\": $m->{nsites},\n" if defined $m->{nsites};
+        print "      \"evalue\": " . sprintf("%.6f", $m->{evalue}) . ",\n" if defined $m->{evalue};
         print "      \"matrix\": [\n";
         for my $ri (0 .. $#{$m->{matrix}}) {
             my $row = $m->{matrix}->[$ri];

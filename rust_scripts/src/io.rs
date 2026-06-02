@@ -37,6 +37,11 @@ fn background_line(alphabet: &str) -> String {
     parts.join(" ")
 }
 
+fn parse_header_value<'a>(line: &'a str, key: &str) -> Option<&'a str> {
+    let idx = line.find(key)?;
+    line[idx + key.len()..].split_whitespace().next()
+}
+
 pub fn is_logodds(row: &[f64], matrix_type: MatrixType) -> bool {
     match matrix_type {
         MatrixType::Logodds => true,
@@ -82,6 +87,8 @@ pub fn read_meme<R: BufRead>(
     let mut in_matrix = false;
     let mut motif_id = String::new();
     let mut description = String::new();
+    let mut nsites: Option<usize> = None;
+    let mut evalue: Option<f64> = None;
     let mut matrix: Vec<Vec<f64>> = Vec::new();
     let mut motifs = Vec::new();
 
@@ -116,11 +123,14 @@ pub fn read_meme<R: BufRead>(
                 continue;
             }
             if in_motif && !matrix.is_empty() {
-                motifs.push(Motif::new(
+                motifs.push(Motif::with_metadata(
                     motif_id.clone(),
                     description.clone(),
                     std::mem::take(&mut matrix),
                     alphabet.clone(),
+                    None,
+                    nsites,
+                    evalue,
                 ));
             }
             in_matrix = false;
@@ -141,6 +151,8 @@ pub fn read_meme<R: BufRead>(
 
             motif_id = id;
             description = original_name;
+            nsites = None;
+            evalue = None;
             matrix.clear();
             in_motif = true;
             continue;
@@ -156,11 +168,14 @@ pub fn read_meme<R: BufRead>(
 
         if trimmed.starts_with("//") {
             if !matrix.is_empty() {
-                motifs.push(Motif::new(
+                motifs.push(Motif::with_metadata(
                     motif_id.clone(),
                     description.clone(),
                     std::mem::take(&mut matrix),
                     alphabet.clone(),
+                    None,
+                    nsites,
+                    evalue,
                 ));
             }
             in_motif = false;
@@ -170,6 +185,12 @@ pub fn read_meme<R: BufRead>(
 
         if trimmed.starts_with("letter-probability matrix:") {
             in_matrix = true;
+            if let Some(value) = parse_header_value(trimmed, "nsites=") {
+                nsites = value.parse::<usize>().ok();
+            }
+            if let Some(value) = parse_header_value(trimmed, "E=") {
+                evalue = value.parse::<f64>().ok();
+            }
             if let Some(alength_idx) = trimmed.find("alength=") {
                 let rest = trimmed[alength_idx + 8..].trim_start();
                 if let Some(value) = rest.split_whitespace().next() {
@@ -220,7 +241,15 @@ pub fn read_meme<R: BufRead>(
     }
 
     if in_motif && !matrix.is_empty() {
-        motifs.push(Motif::new(motif_id, description, matrix, alphabet));
+        motifs.push(Motif::with_metadata(
+            motif_id,
+            description,
+            matrix,
+            alphabet,
+            None,
+            nsites,
+            evalue,
+        ));
     }
 
     Ok(motifs)
@@ -343,6 +372,11 @@ pub fn read_json<R: BufRead>(
                 .and_then(|v| v.as_str())
                 .unwrap_or("ACGT");
             let threshold = motif.get("threshold").and_then(|v| v.as_f64());
+            let nsites = motif
+                .get("nsites")
+                .and_then(|v| v.as_u64())
+                .and_then(|v| usize::try_from(v).ok());
+            let evalue = motif.get("evalue").and_then(|v| v.as_f64());
 
             if matrix.is_none() {
                 continue;
@@ -368,12 +402,14 @@ pub fn read_json<R: BufRead>(
             }
 
             if !processed.is_empty() {
-                motifs.push(Motif::with_threshold(
+                motifs.push(Motif::with_metadata(
                     mid.to_string(),
                     desc.to_string(),
                     processed,
                     alphabet.to_string(),
                     threshold,
+                    nsites,
+                    evalue,
                 ));
             }
         }
@@ -441,10 +477,6 @@ pub fn write_meme<W: Write>(
 ) -> Result<(), MotifError> {
     let mut header_printed = false;
     let mut header_alphabet = String::new();
-    let nsites_value = nsites.unwrap_or(20);
-    let evalue_value = evalue
-        .map(|v| format!("{:.6}", v))
-        .unwrap_or_else(|| "0".to_string());
     for motif in motifs {
         if !header_printed {
             header_alphabet = motif.alphabet.clone();
@@ -466,12 +498,17 @@ pub fn write_meme<W: Write>(
 
         let expected_cols = alphabet_letters(&motif.alphabet).chars().count();
         let width = motif.matrix.len();
+        let motif_nsites = nsites.or(motif.nsites).unwrap_or(20);
+        let motif_evalue = evalue.or(motif.evalue);
+        let evalue_value = motif_evalue
+            .map(|v| format!("{:.6}", v))
+            .unwrap_or_else(|| "0".to_string());
         writeln!(writer, "MOTIF {} {}", motif.id, motif.description)?;
         writeln!(writer)?;
         writeln!(
             writer,
             "letter-probability matrix: alength= {} w= {} nsites= {} E= {}",
-            expected_cols, width, nsites_value, evalue_value
+            expected_cols, width, motif_nsites, evalue_value
         )?;
         for row in &motif.matrix {
             let values = if renormalize_rows {
@@ -510,6 +547,12 @@ pub fn write_json<W: Write>(writer: &mut W, motifs: &[Motif]) -> Result<(), Moti
         if let Some(threshold) = motif.threshold {
             writeln!(writer, "      \"threshold\": {:.6},", threshold)?;
         }
+        if let Some(nsites) = motif.nsites {
+            writeln!(writer, "      \"nsites\": {},", nsites)?;
+        }
+        if let Some(evalue) = motif.evalue {
+            writeln!(writer, "      \"evalue\": {:.6},", evalue)?;
+        }
         writeln!(writer, "      \"matrix\": [")?;
         for (ri, row) in motif.matrix.iter().enumerate() {
             let vals: Vec<String> = row.iter().map(|v| format!("{:.6}", v)).collect();
@@ -534,7 +577,8 @@ pub fn write_json<W: Write>(writer: &mut W, motifs: &[Motif]) -> Result<(), Moti
 #[cfg(test)]
 mod tests {
     use super::{
-        is_logodds, logodds_to_prob, read_homer, read_meme, write_homer, write_meme, MatrixType,
+        is_logodds, logodds_to_prob, read_homer, read_json, read_meme, write_homer, write_json,
+        write_meme, MatrixType,
     };
     use std::io::Cursor;
 
@@ -558,6 +602,14 @@ mod tests {
     }
 
     #[test]
+    fn logodds_to_prob_rejects_background_vector_sum_mismatch() {
+        let err =
+            logodds_to_prob(&[2.0, 0.0, -1.0, -2.0], 0.01, &[0.50, 0.50, 0.50, 0.50]).unwrap_err();
+
+        assert!(err.to_string().contains("sum to 1.0"));
+    }
+
+    #[test]
     fn read_meme_keeps_alphabet_width_when_alength_conflicts() {
         let source = "MEME version 4\n\
 \n\
@@ -576,6 +628,8 @@ letter-probability matrix: alength= 4 w= 2 nsites= 20 E= 0\n\
         assert_eq!(motifs[0].alphabet, "PROTEIN");
         assert_eq!(motifs[0].matrix.len(), 2);
         assert!(motifs[0].matrix.iter().all(|row| row.len() == 20));
+        assert_eq!(motifs[0].nsites, Some(20));
+        assert_eq!(motifs[0].evalue, Some(0.0));
     }
 
     #[test]
@@ -613,6 +667,47 @@ letter-probability matrix: alength= 4 w= 2 nsites= 20 E= 0\n\
         let rendered = String::from_utf8(out).unwrap();
         assert!(rendered.contains("nsites= 4000 E= 0.000010"));
         assert!(rendered.contains("0.250000  0.250000  0.250000  0.250000"));
+    }
+
+    #[test]
+    fn write_meme_uses_motif_metadata_without_cli_override() {
+        let source = "MOTIF M1 desc\n\
+letter-probability matrix: alength= 4 w= 1 nsites= 123 E= 0.5\n\
+0.25 0.25 0.25 0.25\n";
+        let motifs = read_meme(Cursor::new(source), None).unwrap();
+        let mut out = Vec::new();
+
+        write_meme(&mut out, &motifs, None, None, false).unwrap();
+
+        let rendered = String::from_utf8(out).unwrap();
+        assert!(rendered.contains("nsites= 123 E= 0.500000"));
+    }
+
+    #[test]
+    fn json_round_trip_preserves_threshold_nsites_and_evalue_metadata() {
+        let source = "MOTIF M1 desc\n\
+letter-probability matrix: alength= 4 w= 1 nsites= 123 E= 0.5\n\
+0.25 0.25 0.25 0.25\n";
+        let mut motifs = read_meme(Cursor::new(source), None).unwrap();
+        motifs[0].threshold = Some(7.25);
+        let mut json = Vec::new();
+
+        write_json(&mut json, &motifs).unwrap();
+        let rendered = String::from_utf8(json).unwrap();
+        let parsed = read_json(
+            Cursor::new(rendered.as_bytes()),
+            0.01,
+            MatrixType::Probability,
+            &[0.25],
+        )
+        .unwrap();
+
+        assert!(rendered.contains("\"threshold\": 7.250000"));
+        assert!(rendered.contains("\"nsites\": 123"));
+        assert!(rendered.contains("\"evalue\": 0.500000"));
+        assert_eq!(parsed[0].threshold, Some(7.25));
+        assert_eq!(parsed[0].nsites, Some(123));
+        assert_eq!(parsed[0].evalue, Some(0.5));
     }
 
     #[test]

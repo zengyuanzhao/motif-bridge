@@ -110,6 +110,12 @@ fn parse_background(value: &str) -> Result<Vec<f64>, String> {
     if values.is_empty() {
         return Err("-b must contain at least one value".to_string());
     }
+    if values.len() > 1 {
+        let total: f64 = values.iter().sum();
+        if (total - 1.0).abs() > 1e-3 {
+            return Err(format!("-b vector must sum to 1.0, got {:.6}", total));
+        }
+    }
     Ok(values)
 }
 

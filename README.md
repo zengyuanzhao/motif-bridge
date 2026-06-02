@@ -162,7 +162,7 @@ cd rust_scripts && cargo build --release && cd ..
 | `-j <string>` | Database name appended to motif description | `NA` |
 | `-k <string>` | Override motif name from file | *(from file)* |
 | `-e <string>` | Extract only the specified motif by ID or name | *(all motifs)* |
-| `-b <float[,float...]>` | Background probability used for HOMER threshold calculation; scalar or per-column vector | `0.25` |
+| `-b <float[,float...]>` | Background probability used for HOMER threshold calculation; scalar or per-column vector matching matrix width, values in `(0,1]`, vector sum within `1e-3` of `1.0` | `0.25` |
 | `-t <float>` | Threshold offset subtracted from log-odds score (log2 bits) | `4.0` |
 | `-f, --format <fmt>` | Output format: `homer` or `json` | `homer` |
 | `--alphabet <string>` | Alphabet override (`ACGT`, `ACGU`, or `PROTEIN`) | *(auto from MEME header)* |
@@ -181,7 +181,7 @@ cd rust_scripts && cargo build --release && cd ..
 | `-i <file>` | Input HOMER motif file (`-` for stdin, `.gz` supported, `.json` supported) | *(required)* |
 | `-e <string>` | Extract only the specified motif by ID or description | *(all motifs)* |
 | `-a <float>` | Pseudocount for log-odds to probability conversion | `0.01` |
-| `-b <float[,float...]>` | Background probability for log-odds conversion; scalar or per-column vector | `0.25` |
+| `-b <float[,float...]>` | Background probability for log-odds conversion; scalar or per-column vector matching matrix width, values in `(0,1]`, vector sum within `1e-3` of `1.0` | `0.25` |
 | `-f, --format <fmt>` | Input format: `homer` or `json` | `homer` |
 | `--input-format <fmt>` | Matrix type: `auto`, `logodds`, or `probability` | `auto` |
 | `--alphabet <string>` | Alphabet (`ACGT`, `ACGU`, or `PROTEIN`) | `ACGT` |
@@ -259,7 +259,7 @@ meme2homer -i motifs.meme -f json > motifs.json
 homer2meme -i motifs.json -f json > motifs.meme
 ```
 
-Each JSON motif stores `id`, `description`, `alphabet`, and `matrix`; `threshold` is included only when it is present on the motif object. Unicode motif descriptions are preserved.
+Each JSON motif stores `id`, `description`, `alphabet`, and `matrix`. Optional metadata fields `threshold`, `nsites`, and `evalue` are included when they are present on the motif object, so library workflows such as `read_homer` -> `write_json` -> `read_json` -> `write_homer(..., keep_threshold=True)` can preserve a parsed HOMER threshold. Unicode motif descriptions are preserved.
 
 For JSON input containing mixed alphabets, `homer2meme` writes one MEME file using the alphabet of the first emitted motif. Later motifs with incompatible alphabets are skipped with warnings.
 
@@ -363,7 +363,7 @@ The current converters focus on matrix-level conversion. During conversion, some
 | Direction | Metadata behavior |
 |---|---|
 | MEME to HOMER | HOMER `log-p`, `pseudo`, and `sites` are written as `0`; threshold is recalculated from the matrix |
-| HOMER to MEME | MEME `nsites` is written as `20`; `E` is written as `0` unless overridden with `--nsites` / `--evalue` |
+| HOMER to MEME | Plain HOMER text has no MEME metadata, so `nsites` is written as `20` and `E` as `0` unless overridden with `--nsites` / `--evalue`; JSON input can carry `nsites` / `evalue` metadata |
 | Both directions | Matrix values are printed to six decimal places |
 
 For this reason, round-trip conversion should be interpreted as matrix-level consistency rather than byte-for-byte recovery of the original file.
@@ -372,10 +372,10 @@ For this reason, round-trip conversion should be interpreted as matrix-level con
 
 The converted files are suitable as matrix-level exchange artifacts, but they should not be treated as statistically identical to the source files in motif-scanning workflows.
 
-- HOMER thresholds are recalculated during `meme2homer` output as `sum(log2(max_prob / background)) - t_offset`, then clipped to be non-negative. A warning is emitted when the calculated threshold clips to `0`, because HOMER scans may become very permissive. Original HOMER detection thresholds are not preserved through plain `homer2meme` -> `meme2homer` text round trips; library callers can retain a parsed threshold with `write_homer(..., keep_threshold=True)`.
+- HOMER thresholds are recalculated during `meme2homer` output as `sum(log2(max_prob / background)) - t_offset`, then clipped to be non-negative. A warning is emitted when the calculated threshold clips to `0`, because HOMER scans may become very permissive. Original HOMER detection thresholds are not preserved through plain `homer2meme` -> `meme2homer` text round trips; JSON can carry `threshold`, and library callers can retain a parsed threshold with `write_homer(..., keep_threshold=True)`.
 - `homer2meme --input-format auto` classifies rows as probabilities only when the row sum is near 1.0 (`[0.98, 1.02]`). This is practical for standard HOMER known motifs, but rounded, counted, or externally generated matrices can be misclassified. Nonnegative rows close to the auto boundary emit a warning. For reproducible analyses, pass `--input-format probability` or `--input-format logodds` explicitly.
-- MEME `nsites` and `E` metadata are regenerated as `nsites= 20` and `E= 0` by default. Tools such as FIMO or TOMTOM can use `nsites` in pseudocount or statistical calculations, so pass `--nsites` / `--evalue` when source-specific values matter downstream.
-- Background defaults are uniform (`0.25`). The `-b` option can now be either a scalar or a comma-separated per-column vector, for example `-b 0.29,0.21,0.21,0.29`, used by threshold and log-odds conversions. It is still not a full downstream scanner background model, so retune or validate thresholds when scanner background assumptions matter.
+- MEME `nsites` and `E` metadata are regenerated as `nsites= 20` and `E= 0` for plain HOMER input unless overridden. MEME and JSON readers preserve `nsites` / `evalue` metadata when available. Tools such as FIMO or TOMTOM can use `nsites` in pseudocount or statistical calculations, so pass `--nsites` / `--evalue` when source-specific values matter downstream.
+- Background defaults are uniform (`0.25`). The `-b` option can now be either a scalar or a comma-separated per-column vector, for example `-b 0.29,0.21,0.21,0.29`, used by threshold and log-odds conversions. Vectors must match the matrix width, use values in `(0,1]`, and sum to `1.0` within `1e-3`. It is still not a full downstream scanner background model, so retune or validate thresholds when scanner background assumptions matter.
 - Matrix rows are printed to six decimal places and are not renormalized by default. Most motif tools tolerate tiny row-sum drift, but strict consumers can use `--renormalize` to scale each row before writing.
 
 ---
@@ -411,6 +411,7 @@ Run `bash test_motif_bridge.sh` locally. The test suite covers:
 | 13. MOTIF word boundary | Ensure `MOTIF` lines require a word boundary (`MOTIFY` ignored) |
 | 14. Negative matrix warnings | Ensure negative MEME values trigger warnings |
 | 15. Version and parser metadata | Test `--version`, Perl version parsing, and `ALPHABET=`/`alength=` conflicts |
+| 16. Safety flags and metadata | Test threshold/auto warnings, metadata overrides, renormalization, background-vector validation, and JSON metadata preservation |
 
 ### Continuous Integration
 

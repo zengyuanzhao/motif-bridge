@@ -12,6 +12,8 @@ pub struct Motif {
     pub matrix: Vec<Vec<f64>>,
     pub alphabet: String,
     pub threshold: Option<f64>,
+    pub nsites: Option<usize>,
+    pub evalue: Option<f64>,
 }
 
 impl Motif {
@@ -22,6 +24,8 @@ impl Motif {
             matrix,
             alphabet,
             threshold: None,
+            nsites: None,
+            evalue: None,
         }
     }
 
@@ -32,12 +36,26 @@ impl Motif {
         alphabet: String,
         threshold: Option<f64>,
     ) -> Self {
+        Self::with_metadata(id, description, matrix, alphabet, threshold, None, None)
+    }
+
+    pub fn with_metadata(
+        id: String,
+        description: String,
+        matrix: Vec<Vec<f64>>,
+        alphabet: String,
+        threshold: Option<f64>,
+        nsites: Option<usize>,
+        evalue: Option<f64>,
+    ) -> Self {
         Self {
             id,
             description,
             matrix,
             alphabet,
             threshold,
+            nsites,
+            evalue,
         }
     }
 
@@ -141,9 +159,9 @@ impl Motif {
 
 pub fn background_values(bg: &[f64], width: usize) -> Result<Vec<f64>, MotifError> {
     if bg.len() == 1 {
-        if bg[0] <= 0.0 {
+        if bg[0] <= 0.0 || bg[0] > 1.0 {
             return Err(MotifError::Operation(
-                "background values must be > 0".to_string(),
+                "background values must be in (0, 1]".to_string(),
             ));
         }
         return Ok(vec![bg[0]; width]);
@@ -155,10 +173,17 @@ pub fn background_values(bg: &[f64], width: usize) -> Result<Vec<f64>, MotifErro
             width
         )));
     }
-    if bg.iter().any(|v| *v <= 0.0) {
+    if bg.iter().any(|v| *v <= 0.0 || *v > 1.0) {
         return Err(MotifError::Operation(
-            "background values must be > 0".to_string(),
+            "background values must be in (0, 1]".to_string(),
         ));
+    }
+    let total: f64 = bg.iter().sum();
+    if (total - 1.0).abs() > 1e-3 {
+        return Err(MotifError::Operation(format!(
+            "background vector must sum to 1.0, got {:.6}",
+            total
+        )));
     }
     Ok(bg.to_vec())
 }
@@ -301,5 +326,37 @@ mod tests {
             .unwrap_err();
 
         assert!(err.to_string().contains("background length"));
+    }
+
+    #[test]
+    fn calculate_score_rejects_invalid_background_values() {
+        let motif = Motif::new(
+            "m1".to_string(),
+            "dna".to_string(),
+            vec![vec![0.25, 0.25, 0.25, 0.25]],
+            "ACGT".to_string(),
+        );
+
+        let err = motif
+            .calculate_score(&[0.25, 0.25, 0.25, 0.0], 0.0, false)
+            .unwrap_err();
+
+        assert!(err.to_string().contains("background values"));
+    }
+
+    #[test]
+    fn calculate_score_rejects_background_vector_sum_mismatch() {
+        let motif = Motif::new(
+            "m1".to_string(),
+            "dna".to_string(),
+            vec![vec![0.25, 0.25, 0.25, 0.25]],
+            "ACGT".to_string(),
+        );
+
+        let err = motif
+            .calculate_score(&[0.50, 0.50, 0.50, 0.50], 0.0, false)
+            .unwrap_err();
+
+        assert!(err.to_string().contains("sum to 1.0"));
     }
 }

@@ -8,12 +8,18 @@ Background = Union[float, Sequence[float]]
 def _background_values(background: Background, width: int) -> List[float]:
     if isinstance(background, (list, tuple)):
         values = [float(v) for v in background]
-        if len(values) != width:
+        if len(values) == 1:
+            values = values * width
+        elif len(values) != width:
             raise ValueError(f"background length {len(values)} does not match row width {width}")
     else:
         values = [float(background)] * width
-    if any(v <= 0 for v in values):
-        raise ValueError("background values must be > 0")
+    if any(v <= 0 or v > 1 for v in values):
+        raise ValueError("background values must be in (0, 1]")
+    if isinstance(background, (list, tuple)) and len(background) > 1:
+        total = sum(values)
+        if abs(total - 1.0) > 1e-3:
+            raise ValueError(f"background vector must sum to 1.0, got {total:.6f}")
     return values
 
 
@@ -30,12 +36,16 @@ class Motif:
         matrix: List[List[float]],
         alphabet: str = "ACGT",
         threshold: Optional[float] = None,
+        nsites: Optional[int] = None,
+        evalue: Optional[float] = None,
     ):
         self.id = id
         self.description = description
         self.matrix = matrix
         self.alphabet = alphabet
         self.threshold = threshold
+        self.nsites = nsites
+        self.evalue = evalue
 
     def calculate_ic(self) -> List[float]:
         """Calculate Information Content for each position."""
@@ -106,6 +116,10 @@ class Motif:
         }
         if self.threshold is not None:
             data["threshold"] = self.threshold
+        if self.nsites is not None:
+            data["nsites"] = self.nsites
+        if self.evalue is not None:
+            data["evalue"] = self.evalue
         return data
 
     def calculate_score(self, bg: Background, t_offset: float, renormalize: bool = False) -> float:

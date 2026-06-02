@@ -150,6 +150,11 @@ sub parse_background {
         die "Error: -b values must be in (0, 1].\n" unless $v > 0 && $v <= 1;
         push @values, $v;
     }
+    if (scalar(@values) > 1) {
+        my $sum = 0;
+        $sum += $_ for @values;
+        die "Error: -b vector must sum to 1.0.\n" if abs($sum - 1.0) > 1e-3;
+    }
     return @values;
 }
 
@@ -405,6 +410,8 @@ sub parse_and_convert_json {
             my $desc = $m->{description} || $id;
             my $motif_alphabet = $m->{alphabet} || 'ACGT';
             my $expected_cols = length($ALPHABETS{$motif_alphabet} || $motif_alphabet);
+            my $motif_nsites = defined $m->{nsites} ? $m->{nsites} + 0 : undef;
+            my $motif_evalue = defined $m->{evalue} ? $m->{evalue} + 0 : undef;
 
             if ($extract && $id ne $extract && $desc ne $extract) {
                 next;
@@ -432,6 +439,8 @@ sub parse_and_convert_json {
                     matrix => \@matrix,
                     alphabet => $motif_alphabet,
                     expected_cols => $expected_cols,
+                    nsites => $motif_nsites,
+                    evalue => $motif_evalue,
                 };
             }
         }
@@ -442,6 +451,8 @@ sub parse_and_convert_json {
             my %local_config = %$config;
             $local_config{alphabet} = $m->{alphabet};
             $local_config{expected_cols} = $m->{expected_cols};
+            $local_config{nsites} = $m->{nsites} if !defined $local_config{nsites} && defined $m->{nsites};
+            $local_config{evalue} = $m->{evalue} if !defined $local_config{evalue} && defined $m->{evalue};
             process_homer_motif(
                 $m->{id},
                 $m->{desc},

@@ -31,6 +31,8 @@ def background_prob(value: str):
         if not (0 < v <= 1):
             raise argparse.ArgumentTypeError("-b values must be in (0, 1].")
         values.append(v)
+    if len(values) > 1 and abs(sum(values) - 1.0) > 1e-3:
+        raise argparse.ArgumentTypeError("-b vector must sum to 1.0.")
     return values if len(values) > 1 else values[0]
 
 

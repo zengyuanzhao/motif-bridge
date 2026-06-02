@@ -92,3 +92,17 @@ def test_calculate_score_rejects_background_width_mismatch():
 
     with pytest.raises(ValueError, match="background length"):
         motif.calculate_score([0.25, 0.25], 0.0)
+
+
+def test_calculate_score_rejects_invalid_background_values():
+    motif = Motif("m1", "dna", [[0.25, 0.25, 0.25, 0.25]])
+
+    with pytest.raises(ValueError, match="background values"):
+        motif.calculate_score([0.25, 0.25, 0.25, 0.0], 0.0)
+
+
+def test_calculate_score_rejects_background_vector_sum_mismatch():
+    motif = Motif("m1", "dna", [[0.25, 0.25, 0.25, 0.25]])
+
+    with pytest.raises(ValueError, match="sum to 1.0"):
+        motif.calculate_score([0.50, 0.50, 0.50, 0.50], 0.0)

@@ -6,8 +6,10 @@ from motif_bridge.io import (
     is_logodds_row,
     logodds_to_prob,
     read_homer,
+    read_json,
     read_meme,
     write_homer,
+    write_json,
     write_meme,
 )
 
@@ -17,6 +19,28 @@ def test_logodds_to_prob_normalizes_rows():
 
     assert sum(row) == pytest.approx(1.0)
     assert row[0] > row[1] > row[2] > row[3]
+
+
+def test_logodds_to_prob_rejects_background_vector_sum_mismatch():
+    with pytest.raises(ValueError, match="sum to 1.0"):
+        logodds_to_prob(
+            [2.0, 0.0, -1.0, -2.0],
+            pseudocount=0.01,
+            background=[0.50, 0.50, 0.50, 0.50],
+        )
+
+
+def test_read_homer_propagates_background_vector_length_errors():
+    source = StringIO(">M1\tdesc\t1\t0\t0\t0\n2.0\t0.0\t-1.0\t-2.0\n")
+
+    with pytest.raises(ValueError, match="background length"):
+        list(
+            read_homer(
+                source,
+                input_format="logodds",
+                background=[0.50, 0.50],
+            )
+        )
 
 
 def test_is_logodds_row_respects_explicit_input_format():
@@ -56,6 +80,8 @@ letter-probability matrix: alength= 4 w= 2 nsites= 20 E= 0
     assert motifs[0].alphabet == "PROTEIN"
     assert len(motifs[0].matrix) == 2
     assert all(len(row) == 20 for row in motifs[0].matrix)
+    assert motifs[0].nsites == 20
+    assert motifs[0].evalue == pytest.approx(0.0)
 
 
 def test_write_meme_omits_strands_for_protein():
@@ -85,6 +111,47 @@ def test_write_meme_metadata_overrides_and_renormalizes_rows():
     rendered = output.getvalue()
     assert "nsites= 4000 E= 0.000010" in rendered
     assert "  0.250000  0.250000  0.250000  0.250000" in rendered
+
+
+def test_write_meme_uses_motif_metadata_without_cli_override():
+    motifs = list(
+        read_meme(
+            StringIO(
+                "MOTIF M1 desc\n"
+                "letter-probability matrix: alength= 4 w= 1 nsites= 123 E= 0.5\n"
+                "0.25 0.25 0.25 0.25\n"
+            )
+        )
+    )
+    output = StringIO()
+
+    write_meme(motifs, output)
+
+    assert "nsites= 123 E= 0.500000" in output.getvalue()
+
+
+def test_json_round_trip_preserves_threshold_nsites_and_evalue_metadata():
+    motifs = list(
+        read_meme(
+            StringIO(
+                "MOTIF M1 desc\n"
+                "letter-probability matrix: alength= 4 w= 1 nsites= 123 E= 0.5\n"
+                "0.25 0.25 0.25 0.25\n"
+            )
+        )
+    )
+    motifs[0].threshold = 7.25
+    json_output = StringIO()
+
+    write_json(motifs, json_output)
+    parsed = list(read_json(StringIO(json_output.getvalue()), input_format="probability"))
+
+    assert '"threshold": 7.250000' in json_output.getvalue()
+    assert '"nsites": 123' in json_output.getvalue()
+    assert '"evalue": 0.500000' in json_output.getvalue()
+    assert parsed[0].threshold == pytest.approx(7.25)
+    assert parsed[0].nsites == 123
+    assert parsed[0].evalue == pytest.approx(0.5)
 
 
 def test_write_homer_warns_on_zero_threshold(capsys):

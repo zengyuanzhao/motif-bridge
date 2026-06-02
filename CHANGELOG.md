@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - README caveats for downstream interpretation of recalculated HOMER thresholds, `--input-format auto`, fixed MEME metadata, background handling, and formatted row-sum drift.
 - Warnings when recalculated HOMER thresholds clip to `0`, and when nonnegative rows fall near the `--input-format auto` row-sum boundary.
 - Default-off safety flags: `--nsites`, `--evalue`, `--renormalize`, `--keep-threshold`, and comma-separated background vectors for `-b`.
-- Regression coverage for zero-threshold warnings, auto-detection gray-zone warnings, MEME metadata overrides, row renormalization, and background vectors.
+- Regression coverage for zero-threshold warnings, auto-detection gray-zone warnings, MEME metadata overrides, row renormalization, background vectors, invalid background vectors, and JSON metadata preservation.
 
 ### Fixed
 - Perl PROTEIN information-content calculations now use the 20-letter maximum entropy.
@@ -31,6 +31,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Python CLI version reporting now reads installed package metadata when available, using the source-tree fallback only when metadata is absent.
 - Shell regression checks now run inline Python validators inside `if` conditions so failures are reported by the suite under `set -euo pipefail`.
 - Version regression tests compare CLI output to package metadata instead of hard-coding one release number.
+- Background vectors now reject length mismatches, values outside `(0,1]`, and sums farther than `1e-3` from `1.0` instead of silently affecting thresholds or log-odds restoration.
+- JSON output/input now carries optional `threshold`, `nsites`, and `evalue` motif metadata when present.
 
 ## [0.2.0] - 2026-05-21
 
