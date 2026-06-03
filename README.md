@@ -18,7 +18,7 @@ The converters preserve motif matrix content for standard A/C/G/T motifs after n
 
 ## Installation
 
-> **⚠️ Note on published packages**: Releases on Bioconda and Crates.io may lag behind `main`. For the latest features, install from source or use the Git-based Cargo install below.
+> **Published package status**: Crates.io carries the current Rust release. The Bioconda package installs the Rust binaries from the crates.io source package and may lag while recipe updates are reviewed. For unreleased `main` changes, use the Git-based Cargo install or build from source.
 
 ### Bioconda (published releases)
 
@@ -28,14 +28,16 @@ conda install -c bioconda motif-bridge
 
 This installs the precompiled Rust binaries (`meme2homer` and `homer2meme`) directly to your PATH. No compiler or manual build steps required.
 
+The Bioconda recipe packages the Rust implementation only. The Python package and Perl scripts remain available from the source repository.
+
 ### Cargo (Rust)
 
 ```bash
-# Latest source version
-cargo install --git https://github.com/zengyuanzhao/motif-bridge
-
-# Published release, if available for your version target
+# Published Rust crate
 cargo install motif-bridge
+
+# Latest source version from main
+cargo install --git https://github.com/zengyuanzhao/motif-bridge
 ```
 
 ### From source
