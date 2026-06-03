@@ -1410,6 +1410,15 @@ if [ -n "$RUST_BIN" ]; then
     check_diff "$WORK_DIR/py_bgvec.homer" "$WORK_DIR/rs_bgvec.homer" "Python vs Rust meme2homer background vector"
 fi
 
+python3 "$PYTHON/meme2homer.py" -i "$FIXTURES/test_tied_max_bg.meme" -b 0.10,0.20,0.30,0.40 -t 0 > "$WORK_DIR/py_tied_bg.homer" 2> "$WORK_DIR/py_tied_bg.err"
+perl "$PERL/meme2homer.pl" -i "$FIXTURES/test_tied_max_bg.meme" -b 0.10,0.20,0.30,0.40 -t 0 > "$WORK_DIR/pl_tied_bg.homer" 2> "$WORK_DIR/pl_tied_bg.err"
+check_diff "$WORK_DIR/py_tied_bg.homer" "$WORK_DIR/pl_tied_bg.homer" "Python vs Perl tied max background vector"
+
+if [ -n "$RUST_BIN" ]; then
+    "$RUST_BIN/meme2homer" -i "$FIXTURES/test_tied_max_bg.meme" -b 0.10,0.20,0.30,0.40 -t 0 > "$WORK_DIR/rs_tied_bg.homer" 2> "$WORK_DIR/rs_tied_bg.err"
+    check_diff "$WORK_DIR/py_tied_bg.homer" "$WORK_DIR/rs_tied_bg.homer" "Python vs Rust tied max background vector"
+fi
+
 python3 "$PYTHON/homer2meme.py" -i "$FIXTURES/test_logodds.homer" --input-format logodds -b 0.29,0.21,0.21,0.29 > "$WORK_DIR/py_logodds_bgvec.meme" 2> "$WORK_DIR/py_logodds_bgvec.err"
 perl "$PERL/homer2meme.pl" -i "$FIXTURES/test_logodds.homer" --input-format logodds -b 0.29,0.21,0.21,0.29 > "$WORK_DIR/pl_logodds_bgvec.meme" 2> "$WORK_DIR/pl_logodds_bgvec.err"
 check_diff "$WORK_DIR/py_logodds_bgvec.meme" "$WORK_DIR/pl_logodds_bgvec.meme" "Python vs Perl homer2meme background vector"

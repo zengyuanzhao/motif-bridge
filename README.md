@@ -170,7 +170,7 @@ cd rust_scripts && cargo build --release && cd ..
 | `--trim-edges <float>` | Trim edges with Information Content below threshold | `0.0` |
 | `--min-ic <float>` | Filter out motifs with total Information Content below threshold | `0.0` |
 | `--renormalize` | Renormalize rows before writing HOMER output | *(off)* |
-| `--keep-threshold` | Keep an existing motif threshold when present instead of recalculating | *(off)* |
+| `--keep-threshold` | Keep an existing motif threshold when present instead of recalculating; plain MEME CLI input has no threshold metadata, so this matters only for library/JSON-derived motif objects | *(off)* |
 | `--version` | Show version and exit | |
 | `-h` | Show help | |
 
@@ -376,6 +376,7 @@ The converted files are suitable as matrix-level exchange artifacts, but they sh
 - `homer2meme --input-format auto` classifies rows as probabilities only when the row sum is near 1.0 (`[0.98, 1.02]`). This is practical for standard HOMER known motifs, but rounded, counted, or externally generated matrices can be misclassified. Nonnegative rows close to the auto boundary emit a warning. For reproducible analyses, pass `--input-format probability` or `--input-format logodds` explicitly.
 - MEME `nsites` and `E` metadata are regenerated as `nsites= 20` and `E= 0` for plain HOMER input unless overridden. MEME and JSON readers preserve `nsites` / `evalue` metadata when available. Tools such as FIMO or TOMTOM can use `nsites` in pseudocount or statistical calculations, so pass `--nsites` / `--evalue` when source-specific values matter downstream.
 - Background defaults are uniform (`0.25`). The `-b` option can now be either a scalar or a comma-separated per-column vector, for example `-b 0.29,0.21,0.21,0.29`, used by threshold and log-odds conversions. Vectors must match the matrix width, use values in `(0,1]`, and sum to `1.0` within `1e-3`. It is still not a full downstream scanner background model, so retune or validate thresholds when scanner background assumptions matter.
+- With `--rc`, motif columns are reverse-complemented back into the same alphabet order, but a non-symmetric `-b` vector is not reverse-complemented. This does not matter for symmetric vectors such as `0.29,0.21,0.21,0.29`, but asymmetric vectors can shift recalculated thresholds slightly.
 - Matrix rows are printed to six decimal places and are not renormalized by default. Most motif tools tolerate tiny row-sum drift, but strict consumers can use `--renormalize` to scale each row before writing.
 
 ---
@@ -411,7 +412,7 @@ Run `bash test_motif_bridge.sh` locally. The test suite covers:
 | 13. MOTIF word boundary | Ensure `MOTIF` lines require a word boundary (`MOTIFY` ignored) |
 | 14. Negative matrix warnings | Ensure negative MEME values trigger warnings |
 | 15. Version and parser metadata | Test `--version`, Perl version parsing, and `ALPHABET=`/`alength=` conflicts |
-| 16. Safety flags and metadata | Test threshold/auto warnings, metadata overrides, renormalization, background-vector validation, and JSON metadata preservation |
+| 16. Safety flags and metadata | Test threshold/auto warnings, metadata overrides, renormalization, background-vector validation, tied-max scoring parity, and JSON metadata preservation |
 
 ### Continuous Integration
 

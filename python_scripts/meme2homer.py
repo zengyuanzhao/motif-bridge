@@ -121,7 +121,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--keep-threshold",
         action="store_true",
-        help="Keep an existing Motif threshold when present instead of recalculating it.",
+        help=(
+            "Keep an existing Motif threshold when present; plain MEME CLI input has no "
+            "threshold metadata, so this is mainly for library/JSON-derived motif objects."
+        ),
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     return parser.parse_args()

@@ -436,7 +436,7 @@ Options:
     --trim-edges <float> Trim edges with information content below threshold
     --min-ic <float>    Filter out motifs with total information content below threshold
     --renormalize        Renormalize each row before writing HOMER output
-    --keep-threshold     Keep an existing motif threshold when present
+    --keep-threshold     Keep an existing motif threshold when present; plain MEME input has none
     -h           Show this help
 
 Examples:

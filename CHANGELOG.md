@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - README caveats for downstream interpretation of recalculated HOMER thresholds, `--input-format auto`, fixed MEME metadata, background handling, and formatted row-sum drift.
 - Warnings when recalculated HOMER thresholds clip to `0`, and when nonnegative rows fall near the `--input-format auto` row-sum boundary.
 - Default-off safety flags: `--nsites`, `--evalue`, `--renormalize`, `--keep-threshold`, and comma-separated background vectors for `-b`.
-- Regression coverage for zero-threshold warnings, auto-detection gray-zone warnings, MEME metadata overrides, row renormalization, background vectors, invalid background vectors, and JSON metadata preservation.
+- Regression coverage for zero-threshold warnings, auto-detection gray-zone warnings, MEME metadata overrides, row renormalization, background vectors, invalid background vectors, tied maximum scoring with asymmetric backgrounds, and JSON metadata preservation.
 
 ### Fixed
 - Perl PROTEIN information-content calculations now use the 20-letter maximum entropy.
@@ -33,6 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Version regression tests compare CLI output to package metadata instead of hard-coding one release number.
 - Background vectors now reject length mismatches, values outside `(0,1]`, and sums farther than `1e-3` from `1.0` instead of silently affecting thresholds or log-odds restoration.
 - JSON output/input now carries optional `threshold`, `nsites`, and `evalue` motif metadata when present.
+- Rust HOMER threshold scoring now matches Python and Perl by choosing the first maximum-probability column when a row has tied maxima.
 
 ## [0.2.0] - 2026-05-21
 

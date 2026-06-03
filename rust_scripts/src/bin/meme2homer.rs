@@ -63,7 +63,7 @@ struct Args {
     /// Renormalize each row before writing HOMER output
     #[arg(long = "renormalize", action = ArgAction::SetTrue)]
     renormalize: bool,
-    /// Keep an existing motif threshold when present
+    /// Keep an existing motif threshold when present; plain MEME input has no threshold metadata
     #[arg(long = "keep-threshold", action = ArgAction::SetTrue)]
     keep_threshold: bool,
 }

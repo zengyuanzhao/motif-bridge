@@ -76,12 +76,12 @@ impl Motif {
                 row.clone()
             };
             let backgrounds = background_values(bg, values.len())?;
-            let best_idx = values
-                .iter()
-                .enumerate()
-                .max_by(|(_, a), (_, b)| a.total_cmp(b))
-                .map(|(i, _)| i)
-                .unwrap_or(0);
+            let mut best_idx = 0;
+            for (i, &value) in values.iter().enumerate() {
+                if value > values[best_idx] {
+                    best_idx = i;
+                }
+            }
             let max_p = values[best_idx];
             if max_p > 0.0 {
                 raw += (max_p / backgrounds[best_idx]).log2();
@@ -310,6 +310,22 @@ mod tests {
             .unwrap();
 
         assert_close(score, (0.4_f64 / 0.30).log2() + (0.6_f64 / 0.30).log2());
+    }
+
+    #[test]
+    fn calculate_score_uses_first_column_when_maximum_ties() {
+        let motif = Motif::new(
+            "m1".to_string(),
+            "dna".to_string(),
+            vec![vec![0.4, 0.1, 0.1, 0.4]],
+            "ACGT".to_string(),
+        );
+
+        let score = motif
+            .calculate_score(&[0.10, 0.20, 0.30, 0.40], 0.0, false)
+            .unwrap();
+
+        assert_close(score, (0.4_f64 / 0.10).log2());
     }
 
     #[test]
