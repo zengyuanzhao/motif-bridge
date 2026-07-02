@@ -47,4 +47,4 @@ if not __version__:
             raise PackageNotFoundError
         __version__ = version("motif-bridge")
     except PackageNotFoundError:
-        __version__ = "0.3.0"
+        __version__ = "0.3.1"

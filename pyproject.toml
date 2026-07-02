@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "motif-bridge"
-version = "0.3.0"
+version = "0.3.1"
 description = "Cross-language toolkit for converting motifs between MEME and HOMER formats"
 readme = "README.md"
 license = {text = "MIT"}

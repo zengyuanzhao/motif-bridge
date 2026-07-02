@@ -9,7 +9,7 @@ repository-code: "https://github.com/zengyuanzhao/motif-bridge"
 url: "https://github.com/zengyuanzhao/motif-bridge"
 abstract: "motif-bridge is a cross-language toolkit for bidirectional conversion between MEME and HOMER motif formats, with implementations in Perl, Python, and Rust."
 license: MIT
-version: 0.3.0
+version: 0.3.1
 date-released: 2026-07-03
 keywords:
   - bioinformatics

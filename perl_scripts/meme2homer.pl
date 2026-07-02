@@ -4,7 +4,7 @@ use warnings;
 use Getopt::Long;
 use IO::Uncompress::Gunzip qw($GunzipError);
 
-our $VERSION = '0.3.0';
+our $VERSION = '0.3.1';
 
 my $input       = '';
 my $db          = 'NA';
