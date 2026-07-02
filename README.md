@@ -2,6 +2,7 @@
 
 [![Bioconda](https://img.shields.io/conda/vn/bioconda/motif-bridge.svg)](https://anaconda.org/bioconda/motif-bridge)
 [![Crates.io](https://img.shields.io/crates/v/motif-bridge.svg)](https://crates.io/crates/motif-bridge)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21136623.svg)](https://doi.org/10.5281/zenodo.21136623)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 A cross-language toolkit for bridging the **MEME** and **HOMER** motif analysis ecosystems.
@@ -66,7 +67,7 @@ Alternatively, set `PYTHONPATH` to the repository root and run the scripts direc
 
 ## Citation
 
-If you use motif-bridge in a workflow or publication, cite the software using [`CITATION.cff`](CITATION.cff). Zenodo archive metadata is configured in [`.zenodo.json`](.zenodo.json); DOI metadata and a DOI badge should be added after Zenodo mints an identifier for a release.
+If you use motif-bridge in a workflow or publication, cite the software using [`CITATION.cff`](CITATION.cff). The Zenodo concept DOI for all versions is [`10.5281/zenodo.21136623`](https://doi.org/10.5281/zenodo.21136623); the archived `v0.3.1` release DOI is [`10.5281/zenodo.21136624`](https://doi.org/10.5281/zenodo.21136624).
 
 ---
 
