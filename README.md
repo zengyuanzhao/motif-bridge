@@ -66,7 +66,7 @@ Alternatively, set `PYTHONPATH` to the repository root and run the scripts direc
 
 ## Citation
 
-If you use motif-bridge in a workflow or publication, cite the software using [`CITATION.cff`](CITATION.cff). Zenodo DOI metadata can be added to that file after publishing a GitHub release through Zenodo.
+If you use motif-bridge in a workflow or publication, cite the software using [`CITATION.cff`](CITATION.cff). Zenodo archive metadata is configured in [`.zenodo.json`](.zenodo.json); DOI metadata and a DOI badge should be added after Zenodo mints an identifier for a release.
 
 ---
 

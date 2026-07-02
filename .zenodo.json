@@ -1,0 +1,22 @@
+{
+  "title": "motif-bridge: A cross-language toolkit for converting motifs between MEME and HOMER formats",
+  "creators": [
+    {
+      "name": "Zhao, Zengyuan"
+    }
+  ],
+  "description": "motif-bridge is a cross-language toolkit for bidirectional conversion between MEME and HOMER motif formats, with implementations in Perl, Python, and Rust.",
+  "license": "MIT",
+  "keywords": [
+    "bioinformatics",
+    "motif analysis",
+    "MEME",
+    "HOMER",
+    "ChIP-seq",
+    "Rust",
+    "Python",
+    "Perl"
+  ],
+  "upload_type": "software",
+  "access_right": "open"
+}

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Zenodo archive metadata in `.zenodo.json`.
+
+### Changed
+- Expanded `CITATION.cff` with repository URL, abstract, and citation keywords.
+
 ## [0.3.0] - 2026-07-03
 
 ### Added
