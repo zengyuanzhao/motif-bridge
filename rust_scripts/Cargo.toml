@@ -1,6 +1,6 @@
 [package]
 name = "motif-bridge"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 description = "Cross-language toolkit for converting motifs between MEME and HOMER formats"
 license = "MIT"

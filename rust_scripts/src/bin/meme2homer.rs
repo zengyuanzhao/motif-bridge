@@ -15,7 +15,7 @@
 
 use clap::{ArgAction, Parser, ValueEnum};
 use flate2::read::MultiGzDecoder;
-use motif_bridge::io::{read_meme, write_homer, write_json};
+use motif_bridge::io::{read_meme_with_strict, write_homer, write_json};
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, BufWriter};
 
@@ -66,6 +66,9 @@ struct Args {
     /// Keep an existing motif threshold when present; plain MEME input has no threshold metadata
     #[arg(long = "keep-threshold", action = ArgAction::SetTrue)]
     keep_threshold: bool,
+    /// Fail on malformed matrix rows, invalid probability values, or row sums outside tolerance
+    #[arg(long = "strict", action = ArgAction::SetTrue)]
+    strict: bool,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -144,7 +147,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         Box::new(BufReader::new(file))
     };
 
-    let raw_motifs = read_meme(reader, args.alphabet.map(|a| a.as_str()))?;
+    let raw_motifs = read_meme_with_strict(reader, args.alphabet.map(|a| a.as_str()), args.strict)?;
     let mut processed_motifs = Vec::new();
 
     for mut m in raw_motifs {

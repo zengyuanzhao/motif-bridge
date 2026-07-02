@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "motif-bridge"
-version = "0.2.0"
+version = "0.3.0"
 description = "Cross-language toolkit for converting motifs between MEME and HOMER formats"
 readme = "README.md"
 license = {text = "MIT"}
@@ -21,6 +21,15 @@ classifiers = [
 [project.scripts]
 meme2homer-py = "python_scripts.meme2homer:main"
 homer2meme-py = "python_scripts.homer2meme:main"
+
+[project.urls]
+Homepage = "https://github.com/zengyuanzhao/motif-bridge"
+Repository = "https://github.com/zengyuanzhao/motif-bridge"
+Issues = "https://github.com/zengyuanzhao/motif-bridge/issues"
+Changelog = "https://github.com/zengyuanzhao/motif-bridge/blob/main/CHANGELOG.md"
+
+[project.optional-dependencies]
+dev = ["pytest", "ruff", "build"]
 
 [tool.setuptools.packages.find]
 include = ["motif_bridge*", "python_scripts*"]

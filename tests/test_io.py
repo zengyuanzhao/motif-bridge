@@ -130,6 +130,20 @@ def test_write_meme_uses_motif_metadata_without_cli_override():
     assert "nsites= 123 E= 0.500000" in output.getvalue()
 
 
+def test_write_meme_uses_background_vector_in_header():
+    motifs = list(
+        read_homer(
+            StringIO(">M1\tdesc\t1\t0\t0\t0\n0.25\t0.25\t0.25\t0.25\n"),
+            input_format="probability",
+        )
+    )
+    output = StringIO()
+
+    write_meme(motifs, output, background=[0.29, 0.21, 0.21, 0.29])
+
+    assert "A 0.290000 C 0.210000 G 0.210000 T 0.290000" in output.getvalue()
+
+
 def test_json_round_trip_preserves_threshold_nsites_and_evalue_metadata():
     motifs = list(
         read_meme(
@@ -146,6 +160,8 @@ def test_json_round_trip_preserves_threshold_nsites_and_evalue_metadata():
     write_json(motifs, json_output)
     parsed = list(read_json(StringIO(json_output.getvalue()), input_format="probability"))
 
+    assert '"format": "motif-bridge-json"' in json_output.getvalue()
+    assert '"source"' not in json_output.getvalue()
     assert '"threshold": 7.250000' in json_output.getvalue()
     assert '"nsites": 123' in json_output.getvalue()
     assert '"evalue": 0.500000' in json_output.getvalue()
@@ -175,3 +191,24 @@ def test_write_homer_can_keep_source_threshold():
     write_homer(motifs, output, keep_threshold=True)
 
     assert output.getvalue().splitlines()[0].split("\t")[2] == "9.500000"
+
+
+def test_strict_read_meme_rejects_invalid_probability_rows():
+    source = "MOTIF BAD\nletter-probability matrix:\n-0.10 0.40 0.40 0.30\n"
+
+    with pytest.raises(ValueError, match=r"values must be in \[0, 1\]"):
+        list(read_meme(StringIO(source), strict=True))
+
+
+def test_strict_read_homer_rejects_auto_gray_zone():
+    source = ">GRAY\tdesc\t1\t0\t0\t0\n0.30\t0.30\t0.30\t0.15\n"
+
+    with pytest.raises(ValueError, match="auto-detection boundary"):
+        list(read_homer(StringIO(source), strict=True))
+
+
+def test_strict_read_homer_rejects_probability_row_sum():
+    source = ">BAD\tdesc\t1\t0\t0\t0\n0.20\t0.20\t0.20\t0.20\n"
+
+    with pytest.raises(ValueError, match="must sum to 1.0"):
+        list(read_homer(StringIO(source), input_format="probability", strict=True))

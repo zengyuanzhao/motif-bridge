@@ -16,7 +16,9 @@
 
 use clap::{ArgAction, Parser, ValueEnum};
 use flate2::read::MultiGzDecoder;
-use motif_bridge::io::{read_homer, read_json, write_meme, MatrixType};
+use motif_bridge::io::{
+    read_homer_with_strict, read_json_with_strict, write_meme_with_background, MatrixType,
+};
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, BufWriter};
 
@@ -67,6 +69,9 @@ struct Args {
     /// Renormalize each row before writing MEME output
     #[arg(long = "renormalize", action = ArgAction::SetTrue)]
     renormalize: bool,
+    /// Fail on malformed matrix rows, ambiguous auto-detection, or invalid probability rows
+    #[arg(long = "strict", action = ArgAction::SetTrue)]
+    strict: bool,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -187,13 +192,20 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     let matrix_type = args.matrix_type.to_matrix_type();
     let raw_motifs = match args.input_format {
-        InputFormat::Json => read_json(reader, args.pseudocount, matrix_type, &background)?,
-        InputFormat::Homer => read_homer(
+        InputFormat::Json => read_json_with_strict(
+            reader,
+            args.pseudocount,
+            matrix_type,
+            &background,
+            args.strict,
+        )?,
+        InputFormat::Homer => read_homer_with_strict(
             reader,
             args.pseudocount,
             matrix_type,
             args.alphabet.as_str(),
             &background,
+            args.strict,
         )?,
     };
 
@@ -222,12 +234,19 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let mut stdout = BufWriter::new(io::stdout().lock());
-    write_meme(
+    let output_background = if background.len() > 1 {
+        Some(background.as_slice())
+    } else {
+        None
+    };
+    write_meme_with_background(
         &mut stdout,
         &processed_motifs,
         args.nsites,
         args.evalue,
         args.renormalize,
+        output_background,
+        args.strict,
     )?;
 
     Ok(())

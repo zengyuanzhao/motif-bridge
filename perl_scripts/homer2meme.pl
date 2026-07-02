@@ -4,7 +4,7 @@ use warnings;
 use Getopt::Long;
 use IO::Uncompress::Gunzip qw($GunzipError);
 
-our $VERSION = '0.2.0';
+our $VERSION = '0.3.0';
 
 my $input       = '';
 my $extract     = '';
@@ -20,6 +20,7 @@ my $evalue;
 my $renormalize = 0;
 my $alphabet    = 'ACGT';
 my $show_version = 0;
+my $strict_mode = 0;
 
 GetOptions(
     'i=s' => \$input,
@@ -37,6 +38,7 @@ GetOptions(
     'evalue=f' => \$evalue,
     'renormalize' => \$renormalize,
     'version' => \$show_version,
+    'strict' => \$strict_mode,
     'h'   => sub { usage() },
 ) or usage();
 
@@ -72,6 +74,7 @@ my %config = (
     evalue => $evalue,
     renormalize => $renormalize,
     alphabet => $alphabet,
+    strict => $strict_mode,
     expected_cols => length($ALPHABETS{$alphabet} || $alphabet),
 );
 
@@ -105,7 +108,7 @@ if ($input ne '-') {
 # ---------------------------------------------------------------------------
 
 sub is_logodds {
-    my ($row_ref, $matrix_type) = @_;
+    my ($row_ref, $matrix_type, $strict) = @_;
     return 1 if $matrix_type eq 'logodds';
     return 0 if $matrix_type eq 'probability';
     my $sum = 0;
@@ -119,10 +122,12 @@ sub is_logodds {
         }
     }
     if (!$is_probability && $all_nonnegative && $sum >= 0.90 && $sum <= 1.10) {
-        warn sprintf(
-            "Warning: row sum %.4f is close to the auto-detection boundary; use --input-format logodds or --input-format probability for reproducibility\n",
+        my $message = sprintf(
+            "row sum %.4f is close to the auto-detection boundary; use --input-format logodds or --input-format probability for reproducibility",
             $sum
         );
+        die "Error: $message\n" if $strict;
+        warn "Warning: $message\n";
     }
     return !$is_probability;
 }
@@ -174,6 +179,17 @@ sub renormalized_row {
     $sum += $_ for @$row_ref;
     return @$row_ref unless $sum > 0;
     return map { $_ / $sum } @$row_ref;
+}
+
+sub validate_probability_row {
+    my ($row_ref, $context) = @_;
+    foreach my $v (@$row_ref) {
+        die "Error: $context values must be in [0, 1]\n" if $v < 0 || $v > 1;
+    }
+    my $sum = 0;
+    $sum += $_ for @$row_ref;
+    die "Error: $context must sum to 1.0, got " . sprintf("%.6f", $sum) . "\n"
+        if abs($sum - 1.0) > 1e-3;
 }
 
 sub calculate_ic {
@@ -261,7 +277,7 @@ sub process_homer_motif {
             return;
         }
     } else {
-        print_meme_header($config->{alphabet});
+        print_meme_header($config->{alphabet}, $config->{background});
         $$header_ref = 1;
         $$header_alphabet_ref = $config->{alphabet};
     }
@@ -269,10 +285,19 @@ sub process_homer_motif {
 }
 
 sub background_line {
-    my ($alphabet) = @_;
+    my ($alphabet, $bg_ref) = @_;
     my $letters = $ALPHABETS{$alphabet} || $alphabet;
     return '' unless length($letters);
     my $count = length($letters);
+    if (defined $bg_ref && scalar(@$bg_ref) > 1) {
+        my @bg = background_for_width($bg_ref, $count);
+        my @parts;
+        my @letters = split //, $letters;
+        for my $i (0 .. $#letters) {
+            push @parts, sprintf("%s %.6f", $letters[$i], $bg[$i]);
+        }
+        return join(" ", @parts);
+    }
     my $freq = 1 / $count;
     my $fmt = ($count == 4 || $count == 20) ? "%.2f" : "%.6f";
     my @parts;
@@ -283,7 +308,7 @@ sub background_line {
 }
 
 sub print_meme_header {
-    my ($alphabet) = @_;
+    my ($alphabet, $background) = @_;
     print "MEME version 4\n";
     print "\n";
     print "ALPHABET= $alphabet\n";
@@ -293,7 +318,7 @@ sub print_meme_header {
         print "\n";
     }
     print "Background letter frequencies\n";
-    print background_line($alphabet) . "\n";
+    print background_line($alphabet, $background) . "\n";
     print "\n";
 }
 
@@ -308,6 +333,7 @@ sub print_meme_motif {
     print "letter-probability matrix: alength= $expected_cols w= $width nsites= $nsites E= $evalue\n";
     foreach my $row (@$matrix_ref) {
         my @values = $config->{renormalize} ? renormalized_row($row) : @$row;
+        validate_probability_row(\@values, "MEME output row for motif '$id'") if $config->{strict};
         print "  " . join("  ", map { sprintf("%.6f", $_) } @values) . "\n";
     }
     print "\n";
@@ -363,17 +389,24 @@ sub parse_and_convert_homer {
                 last;
             }
         }
-        next unless $all_numeric && @tokens;
-
-        my @row = map { $_ + 0 } @tokens;
-        if (scalar(@row) != $config->{expected_cols}) {
-            warn "Warning: skipping malformed matrix row (expected $config->{expected_cols} cols, got "
-                 . scalar(@row) . "): $_\n";
+        if (!$all_numeric || !@tokens) {
+            die "Error: skipping malformed row (expected numeric values): $_\n" if $config->{strict};
             next;
         }
 
-        if (is_logodds(\@row, $matrix_type)) {
+        my @row = map { $_ + 0 } @tokens;
+        if (scalar(@row) != $config->{expected_cols}) {
+            my $message = "skipping malformed matrix row (expected $config->{expected_cols} cols, got "
+                 . scalar(@row) . "): $_";
+            die "Error: $message\n" if $config->{strict};
+            warn "Warning: $message\n";
+            next;
+        }
+
+        if (is_logodds(\@row, $matrix_type, $config->{strict})) {
             @row = logodds_to_prob(\@row, $pseudocount, $background);
+        } elsif ($config->{strict}) {
+            validate_probability_row(\@row, "HOMER probability row for motif '$motif_id'");
         }
         push @matrix, \@row;
     }
@@ -422,12 +455,16 @@ sub parse_and_convert_json {
                 for my $row (@{$m->{matrix}}) {
                     if (ref $row eq 'ARRAY' && scalar(@$row) == $expected_cols) {
                         my @vals = map { $_ + 0 } @$row;
-                        if (is_logodds(\@vals, $matrix_type)) {
+                        if (is_logodds(\@vals, $matrix_type, $config->{strict})) {
                             @vals = logodds_to_prob(\@vals, $pseudocount, $background);
+                        } elsif ($config->{strict}) {
+                            validate_probability_row(\@vals, "JSON probability row for motif '$id'");
                         }
                         push @matrix, \@vals;
                     } else {
-                        warn "Warning: skipping malformed matrix row (expected $expected_cols cols)\n";
+                        my $message = "skipping malformed matrix row (expected $expected_cols cols)";
+                        die "Error: $message\n" if $config->{strict};
+                        warn "Warning: $message\n";
                     }
                 }
             }
@@ -486,6 +523,7 @@ Options:
     --nsites <int>       Override MEME nsites metadata in output
     --evalue <float>     Override MEME E metadata in output
     --renormalize        Renormalize each row before writing MEME output
+    --strict             Fail on malformed rows, ambiguous auto-detection, or invalid probabilities
     -h          Show this help
 
 Examples:

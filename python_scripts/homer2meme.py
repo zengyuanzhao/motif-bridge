@@ -169,6 +169,13 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Renormalize each row before writing MEME output.",
     )
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help=(
+            "Fail on malformed matrix rows, ambiguous auto-detection, or invalid probability rows."
+        ),
+    )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     return parser.parse_args()
 
@@ -213,7 +220,11 @@ def main() -> None:
 
         if args.format == "json":
             raw_motifs = read_json(
-                fh, pseudocount=args.a, input_format=args.input_format, background=args.background
+                fh,
+                pseudocount=args.a,
+                input_format=args.input_format,
+                background=args.background,
+                strict=args.strict,
             )
         else:
             raw_motifs = read_homer(
@@ -222,6 +233,7 @@ def main() -> None:
                 input_format=args.input_format,
                 alphabet=args.alphabet,
                 background=args.background,
+                strict=args.strict,
             )
 
         processed_motifs = process_motifs(raw_motifs, args)
@@ -231,6 +243,8 @@ def main() -> None:
             nsites=args.nsites,
             evalue=args.evalue,
             renormalize=args.renormalize,
+            background=args.background,
+            strict=args.strict,
         )
 
     except FileNotFoundError:

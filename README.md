@@ -64,6 +64,12 @@ Alternatively, set `PYTHONPATH` to the repository root and run the scripts direc
 
 ---
 
+## Citation
+
+If you use motif-bridge in a workflow or publication, cite the software using [`CITATION.cff`](CITATION.cff). Zenodo DOI metadata can be added to that file after publishing a GitHub release through Zenodo.
+
+---
+
 ## Why This Exists
 
 | | MEME Suite | HOMER |
@@ -173,6 +179,7 @@ cd rust_scripts && cargo build --release && cd ..
 | `--min-ic <float>` | Filter out motifs with total Information Content below threshold | `0.0` |
 | `--renormalize` | Renormalize rows before writing HOMER output | *(off)* |
 | `--keep-threshold` | Keep an existing motif threshold when present instead of recalculating; plain MEME CLI input has no threshold metadata, so this matters only for library/JSON-derived motif objects | *(off)* |
+| `--strict` | Fail on malformed matrix rows, values outside `[0, 1]`, row sums outside tolerance, or `alength=`/alphabet conflicts | *(off)* |
 | `--version` | Show version and exit | |
 | `-h` | Show help | |
 
@@ -193,6 +200,7 @@ cd rust_scripts && cargo build --release && cd ..
 | `--nsites <int>` | Override MEME `nsites` metadata in output | `20` |
 | `--evalue <float>` | Override MEME `E` metadata in output | `0` |
 | `--renormalize` | Renormalize rows before writing MEME output | *(off)* |
+| `--strict` | Fail on malformed rows, ambiguous `--input-format auto` rows, or invalid probability rows | *(off)* |
 | `--version` | Show version and exit | |
 | `-h` | Show help | |
 
@@ -261,7 +269,7 @@ meme2homer -i motifs.meme -f json > motifs.json
 homer2meme -i motifs.json -f json > motifs.meme
 ```
 
-Each JSON motif stores `id`, `description`, `alphabet`, and `matrix`. Optional metadata fields `threshold`, `nsites`, and `evalue` are included when they are present on the motif object, so library workflows such as `read_homer` -> `write_json` -> `read_json` -> `write_homer(..., keep_threshold=True)` can preserve a parsed HOMER threshold. Unicode motif descriptions are preserved.
+The JSON document uses top-level `"format": "motif-bridge-json"` and `"version": "1.0"` markers. Each motif stores `id`, `description`, `alphabet`, and `matrix`. Optional metadata fields `threshold`, `nsites`, and `evalue` are included when they are present on the motif object, so library workflows such as `read_homer` -> `write_json` -> `read_json` -> `write_homer(..., keep_threshold=True)` can preserve a parsed HOMER threshold. Unicode motif descriptions are preserved.
 
 For JSON input containing mixed alphabets, `homer2meme` writes one MEME file using the alphabet of the first emitted motif. Later motifs with incompatible alphabets are skipped with warnings.
 
@@ -377,9 +385,9 @@ The converted files are suitable as matrix-level exchange artifacts, but they sh
 - HOMER thresholds are recalculated during `meme2homer` output as `sum(log2(max_prob / background)) - t_offset`, then clipped to be non-negative. A warning is emitted when the calculated threshold clips to `0`, because HOMER scans may become very permissive. Original HOMER detection thresholds are not preserved through plain `homer2meme` -> `meme2homer` text round trips; JSON can carry `threshold`, and library callers can retain a parsed threshold with `write_homer(..., keep_threshold=True)`.
 - `homer2meme --input-format auto` classifies rows as probabilities only when the row sum is near 1.0 (`[0.98, 1.02]`). This is practical for standard HOMER known motifs, but rounded, counted, or externally generated matrices can be misclassified. Nonnegative rows close to the auto boundary emit a warning. For reproducible analyses, pass `--input-format probability` or `--input-format logodds` explicitly.
 - MEME `nsites` and `E` metadata are regenerated as `nsites= 20` and `E= 0` for plain HOMER input unless overridden. MEME and JSON readers preserve `nsites` / `evalue` metadata when available. Tools such as FIMO or TOMTOM can use `nsites` in pseudocount or statistical calculations, so pass `--nsites` / `--evalue` when source-specific values matter downstream.
-- Background defaults are uniform (`0.25`). The `-b` option can now be either a scalar or a comma-separated per-column vector, for example `-b 0.29,0.21,0.21,0.29`, used by threshold and log-odds conversions. Vectors must match the matrix width, use values in `(0,1]`, and sum to `1.0` within `1e-3`. It is still not a full downstream scanner background model, so retune or validate thresholds when scanner background assumptions matter.
+- Background defaults are uniform (`0.25`). The `-b` option can be either a scalar or a comma-separated per-column vector, for example `-b 0.29,0.21,0.21,0.29`, used by threshold and log-odds conversions. Valid vectors are also written to the MEME `Background letter frequencies` header during `homer2meme`; scalar values other than the uniform default remain conversion parameters and are not written as normalized MEME background vectors. Retune or validate thresholds when scanner background assumptions matter.
 - With `--rc`, motif columns are reverse-complemented back into the same alphabet order, but a non-symmetric `-b` vector is not reverse-complemented. This does not matter for symmetric vectors such as `0.29,0.21,0.21,0.29`, but asymmetric vectors can shift recalculated thresholds slightly.
-- Matrix rows are printed to six decimal places and are not renormalized by default. Most motif tools tolerate tiny row-sum drift, but strict consumers can use `--renormalize` to scale each row before writing.
+- Matrix rows are printed to six decimal places and are not renormalized by default. Most motif tools tolerate tiny row-sum drift, but consumers can use `--renormalize` to scale each row before writing or `--strict` to fail on invalid probability rows instead of warning/skipping.
 
 ---
 
@@ -414,7 +422,7 @@ Run `bash test_motif_bridge.sh` locally. The test suite covers:
 | 13. MOTIF word boundary | Ensure `MOTIF` lines require a word boundary (`MOTIFY` ignored) |
 | 14. Negative matrix warnings | Ensure negative MEME values trigger warnings |
 | 15. Version and parser metadata | Test `--version`, Perl version parsing, and `ALPHABET=`/`alength=` conflicts |
-| 16. Safety flags and metadata | Test threshold/auto warnings, metadata overrides, renormalization, background-vector validation, tied-max scoring parity, and JSON metadata preservation |
+| 16. Safety flags and metadata | Test threshold/auto warnings, metadata overrides, renormalization, strict-mode failures, background-vector validation/header output, tied-max scoring parity, and JSON metadata preservation |
 
 ### Continuous Integration
 

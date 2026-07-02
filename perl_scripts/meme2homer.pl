@@ -4,7 +4,7 @@ use warnings;
 use Getopt::Long;
 use IO::Uncompress::Gunzip qw($GunzipError);
 
-our $VERSION = '0.2.0';
+our $VERSION = '0.3.0';
 
 my $input       = '';
 my $db          = 'NA';
@@ -20,6 +20,7 @@ my $min_ic      = 0;
 my $renormalize = 0;
 my $keep_threshold = 0;
 my $show_version = 0;
+my $strict_mode = 0;
 
 GetOptions(
     'i=s' => \$input,
@@ -37,6 +38,7 @@ GetOptions(
     'renormalize' => \$renormalize,
     'keep-threshold' => \$keep_threshold,
     'version' => \$show_version,
+    'strict' => \$strict_mode,
     'h'   => sub { usage() },
 ) or usage();
 
@@ -71,6 +73,7 @@ my %config = (
     min_ic => $min_ic,
     renormalize => $renormalize,
     keep_threshold => $keep_threshold,
+    strict => $strict_mode,
     expected_cols => length($ALPHABETS{$effective_alphabet} || $effective_alphabet),
 );
 
@@ -154,8 +157,10 @@ while (<$fh>) {
         if (/alength=\s*(\d+)/) {
             my $alength = $1;
             if ($alength != $config{expected_cols}) {
-                warn "Warning: alength=$alength conflicts with alphabet $config{alphabet} "
-                   . "(expected $config{expected_cols} cols); using alphabet-derived width\n";
+                my $message = "alength=$alength conflicts with alphabet $config{alphabet} "
+                   . "(expected $config{expected_cols} cols); using alphabet-derived width";
+                die "Error: $message\n" if $config{strict};
+                warn "Warning: $message\n";
             } else {
                 $config{expected_cols} = $alength;
             }
@@ -180,13 +185,17 @@ while (<$fh>) {
         s/^\s+//;
         my @row = split /\s+/;
         if (scalar(@row) == $config{expected_cols}) {
-            if (grep { $_ < 0 } @row) {
+            if ($config{strict}) {
+                validate_probability_row(\@row, "MEME matrix row for motif '$motif_id'");
+            } elsif (grep { $_ < 0 } @row) {
                 warn "Warning: negative value in matrix row (expected probabilities): $_\n";
             }
             push @matrix, \@row;
         } else {
-            warn "Warning: skipping malformed matrix row (expected $config{expected_cols} cols, got "
-                 . scalar(@row) . "): $_\n";
+            my $message = "skipping malformed matrix row (expected $config{expected_cols} cols, got "
+                 . scalar(@row) . "): $_";
+            die "Error: $message\n" if $config{strict};
+            warn "Warning: $message\n";
         }
     }
 }
@@ -317,6 +326,17 @@ sub renormalized_row {
     return map { $_ / $sum } @$row_ref;
 }
 
+sub validate_probability_row {
+    my ($row_ref, $context) = @_;
+    foreach my $v (@$row_ref) {
+        die "Error: $context values must be in [0, 1]\n" if $v < 0 || $v > 1;
+    }
+    my $sum = 0;
+    $sum += $_ for @$row_ref;
+    die "Error: $context must sum to 1.0, got " . sprintf("%.6f", $sum) . "\n"
+        if abs($sum - 1.0) > 1e-3;
+}
+
 sub calculate_ic {
     my ($matrix_ref, $alphabet) = @_;
     my $max_ic = ($alphabet eq 'PROTEIN') ? log2(20) : 2.0;
@@ -385,7 +405,7 @@ sub print_json {
     my $encoder = JSON::PP->new->allow_nonref->ascii(0);
     print "{\n";
     print "  \"version\": \"1.0\",\n";
-    print "  \"source\": \"meme\",\n";
+    print "  \"format\": \"motif-bridge-json\",\n";
     print "  \"motifs\": [\n";
     for my $mi (0 .. $#{$motifs_ref}) {
         my $m = $motifs_ref->[$mi];
@@ -437,6 +457,7 @@ Options:
     --min-ic <float>    Filter out motifs with total information content below threshold
     --renormalize        Renormalize each row before writing HOMER output
     --keep-threshold     Keep an existing motif threshold when present; plain MEME input has none
+    --strict             Fail on malformed or invalid probability matrix rows
     -h           Show this help
 
 Examples:

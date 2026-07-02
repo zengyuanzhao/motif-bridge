@@ -9,6 +9,8 @@ pub enum MatrixType {
     Probability,
 }
 
+const PROBABILITY_SUM_TOLERANCE: f64 = 1e-3;
+
 fn alphabet_letters(alphabet: &str) -> &str {
     match alphabet {
         "ACGT" => "ACGT",
@@ -18,11 +20,22 @@ fn alphabet_letters(alphabet: &str) -> &str {
     }
 }
 
-fn background_line(alphabet: &str) -> String {
+fn background_line(alphabet: &str, background: Option<&[f64]>) -> Result<String, MotifError> {
     let letters = alphabet_letters(alphabet);
     let count = letters.chars().count();
     if count == 0 {
-        return String::new();
+        return Ok(String::new());
+    }
+    if let Some(bg) = background {
+        if bg.len() > 1 {
+            let values = background_values(bg, count)?;
+            let parts: Vec<String> = letters
+                .chars()
+                .zip(values)
+                .map(|(ch, value)| format!("{ch} {:.6}", value))
+                .collect();
+            return Ok(parts.join(" "));
+        }
     }
     let freq = 1.0_f64 / count as f64;
     let mut parts = Vec::with_capacity(count);
@@ -34,7 +47,7 @@ fn background_line(alphabet: &str) -> String {
         };
         parts.push(format!("{ch} {formatted}"));
     }
-    parts.join(" ")
+    Ok(parts.join(" "))
 }
 
 fn parse_header_value<'a>(line: &'a str, key: &str) -> Option<&'a str> {
@@ -42,22 +55,55 @@ fn parse_header_value<'a>(line: &'a str, key: &str) -> Option<&'a str> {
     line[idx + key.len()..].split_whitespace().next()
 }
 
-pub fn is_logodds(row: &[f64], matrix_type: MatrixType) -> bool {
+fn validate_probability_row(row: &[f64], context: &str) -> Result<(), MotifError> {
+    if row.iter().any(|v| *v < 0.0 || *v > 1.0) {
+        return Err(MotifError::Parse(format!(
+            "{context} values must be in [0, 1]"
+        )));
+    }
+    let total: f64 = row.iter().sum();
+    if (total - 1.0).abs() > PROBABILITY_SUM_TOLERANCE {
+        return Err(MotifError::Parse(format!(
+            "{context} must sum to 1.0, got {:.6}",
+            total
+        )));
+    }
+    Ok(())
+}
+
+fn is_logodds_with_strict(
+    row: &[f64],
+    matrix_type: MatrixType,
+    strict: bool,
+) -> Result<bool, MotifError> {
     match matrix_type {
-        MatrixType::Logodds => true,
-        MatrixType::Probability => false,
+        MatrixType::Logodds => Ok(true),
+        MatrixType::Probability => Ok(false),
         MatrixType::Auto => {
             let s: f64 = row.iter().sum();
             let is_probability = (0.98..=1.02).contains(&s);
             if !is_probability && row.iter().all(|v| *v >= 0.0) && (0.90..=1.10).contains(&s) {
-                eprintln!(
+                let message = format!(
                     "Warning: row sum {:.4} is close to the auto-detection boundary; use --input-format logodds or --input-format probability for reproducibility",
                     s
                 );
+                if strict {
+                    return Err(MotifError::Parse(
+                        message
+                            .strip_prefix("Warning: ")
+                            .unwrap_or(&message)
+                            .to_string(),
+                    ));
+                }
+                eprintln!("{message}");
             }
-            !is_probability
+            Ok(!is_probability)
         }
     }
+}
+
+pub fn is_logodds(row: &[f64], matrix_type: MatrixType) -> bool {
+    is_logodds_with_strict(row, matrix_type, false).unwrap_or(false)
 }
 
 pub fn logodds_to_prob(
@@ -82,6 +128,14 @@ fn json_string(value: &str) -> String {
 pub fn read_meme<R: BufRead>(
     reader: R,
     alphabet_override: Option<&str>,
+) -> Result<Vec<Motif>, MotifError> {
+    read_meme_with_strict(reader, alphabet_override, false)
+}
+
+pub fn read_meme_with_strict<R: BufRead>(
+    reader: R,
+    alphabet_override: Option<&str>,
+    strict: bool,
 ) -> Result<Vec<Motif>, MotifError> {
     let mut in_motif = false;
     let mut in_matrix = false;
@@ -198,10 +252,14 @@ pub fn read_meme<R: BufRead>(
                         continue;
                     };
                     if len != expected_cols {
-                        eprintln!(
-                            "Warning: alength={} conflicts with alphabet {} (expected {} cols); using alphabet-derived width",
+                        let message = format!(
+                            "alength={} conflicts with alphabet {} (expected {} cols); using alphabet-derived width",
                             len, alphabet, expected_cols
                         );
+                        if strict {
+                            return Err(MotifError::Parse(message));
+                        }
+                        eprintln!("Warning: {message}");
                     } else {
                         expected_cols = len;
                     }
@@ -221,7 +279,12 @@ pub fn read_meme<R: BufRead>(
                 .collect();
             if let Ok(values) = row {
                 if values.len() == expected_cols {
-                    if values.iter().any(|v| *v < 0.0) {
+                    if strict {
+                        validate_probability_row(
+                            &values,
+                            &format!("MEME matrix row for motif '{}'", motif_id),
+                        )?;
+                    } else if values.iter().any(|v| *v < 0.0) {
                         eprintln!(
                             "Warning: negative value in matrix row (expected probabilities): {}",
                             trimmed
@@ -229,13 +292,22 @@ pub fn read_meme<R: BufRead>(
                     }
                     matrix.push(values);
                 } else if !values.is_empty() {
-                    eprintln!(
-                        "Warning: skipping malformed matrix row (expected {} cols, got {}): {}",
+                    let message = format!(
+                        "skipping malformed matrix row (expected {} cols, got {}): {}",
                         expected_cols,
                         values.len(),
                         trimmed
                     );
+                    if strict {
+                        return Err(MotifError::Parse(message));
+                    }
+                    eprintln!("Warning: {message}");
                 }
+            } else if strict {
+                return Err(MotifError::Parse(format!(
+                    "skipping malformed matrix row (expected numeric values): {}",
+                    trimmed
+                )));
             }
         }
     }
@@ -261,6 +333,24 @@ pub fn read_homer<R: BufRead>(
     matrix_type: MatrixType,
     alphabet: &str,
     background: &[f64],
+) -> Result<Vec<Motif>, MotifError> {
+    read_homer_with_strict(
+        reader,
+        pseudocount,
+        matrix_type,
+        alphabet,
+        background,
+        false,
+    )
+}
+
+pub fn read_homer_with_strict<R: BufRead>(
+    reader: R,
+    pseudocount: f64,
+    matrix_type: MatrixType,
+    alphabet: &str,
+    background: &[f64],
+    strict: bool,
 ) -> Result<Vec<Motif>, MotifError> {
     let mut in_motif = false;
     let mut motif_id = String::new();
@@ -318,19 +408,33 @@ pub fn read_homer<R: BufRead>(
         if let Ok(mut row) = row_result {
             if !row.is_empty() {
                 if row.len() != expected_cols {
-                    eprintln!(
-                        "Warning: skipping malformed row (expected {} cols, got {}): {}",
+                    let message = format!(
+                        "skipping malformed row (expected {} cols, got {}): {}",
                         expected_cols,
                         row.len(),
                         trimmed
                     );
+                    if strict {
+                        return Err(MotifError::Parse(message));
+                    }
+                    eprintln!("Warning: {message}");
                     continue; // Skip malformed
                 }
-                if is_logodds(&row, matrix_type) {
+                if is_logodds_with_strict(&row, matrix_type, strict)? {
                     row = logodds_to_prob(&row, pseudocount, background)?;
+                } else if strict {
+                    validate_probability_row(
+                        &row,
+                        &format!("HOMER probability row for motif '{}'", motif_id),
+                    )?;
                 }
                 matrix.push(row);
             }
+        } else if strict {
+            return Err(MotifError::Parse(format!(
+                "skipping malformed row (expected numeric values): {}",
+                trimmed
+            )));
         }
     }
 
@@ -348,10 +452,20 @@ pub fn read_homer<R: BufRead>(
 }
 
 pub fn read_json<R: BufRead>(
+    reader: R,
+    pseudocount: f64,
+    matrix_type: MatrixType,
+    background: &[f64],
+) -> Result<Vec<Motif>, MotifError> {
+    read_json_with_strict(reader, pseudocount, matrix_type, background, false)
+}
+
+pub fn read_json_with_strict<R: BufRead>(
     mut reader: R,
     pseudocount: f64,
     matrix_type: MatrixType,
     background: &[f64],
+    strict: bool,
 ) -> Result<Vec<Motif>, MotifError> {
     let mut content = String::new();
     reader.read_to_string(&mut content)?;
@@ -388,16 +502,37 @@ pub fn read_json<R: BufRead>(
             for row in matrix {
                 if let Some(arr) = row.as_array() {
                     if arr.len() != expected_cols {
+                        if strict {
+                            return Err(MotifError::Parse(format!(
+                                "skipping malformed matrix row (expected {} cols, got {})",
+                                expected_cols,
+                                arr.len()
+                            )));
+                        }
                         continue;
                     }
                     let vals: Vec<f64> = arr.iter().filter_map(|v| v.as_f64()).collect();
                     if vals.len() == expected_cols {
-                        if is_logodds(&vals, matrix_type) {
+                        if is_logodds_with_strict(&vals, matrix_type, strict)? {
                             processed.push(logodds_to_prob(&vals, pseudocount, background)?);
                         } else {
+                            if strict {
+                                validate_probability_row(
+                                    &vals,
+                                    &format!("JSON probability row for motif '{}'", mid),
+                                )?;
+                            }
                             processed.push(vals);
                         }
+                    } else if strict {
+                        return Err(MotifError::Parse(
+                            "skipping malformed matrix row (expected numeric values)".to_string(),
+                        ));
                     }
+                } else if strict {
+                    return Err(MotifError::Parse(
+                        "skipping malformed matrix row (expected array)".to_string(),
+                    ));
                 }
             }
 
@@ -475,6 +610,26 @@ pub fn write_meme<W: Write>(
     evalue: Option<f64>,
     renormalize_rows: bool,
 ) -> Result<(), MotifError> {
+    write_meme_with_background(
+        writer,
+        motifs,
+        nsites,
+        evalue,
+        renormalize_rows,
+        None,
+        false,
+    )
+}
+
+pub fn write_meme_with_background<W: Write>(
+    writer: &mut W,
+    motifs: &[Motif],
+    nsites: Option<usize>,
+    evalue: Option<f64>,
+    renormalize_rows: bool,
+    background: Option<&[f64]>,
+    strict: bool,
+) -> Result<(), MotifError> {
     let mut header_printed = false;
     let mut header_alphabet = String::new();
     for motif in motifs {
@@ -486,7 +641,11 @@ pub fn write_meme<W: Write>(
                 writeln!(writer, "strands: + -\n")?;
             }
             writeln!(writer, "Background letter frequencies")?;
-            writeln!(writer, "{}\n", background_line(&motif.alphabet))?;
+            writeln!(
+                writer,
+                "{}\n",
+                background_line(&motif.alphabet, background)?
+            )?;
             header_printed = true;
         } else if motif.alphabet != header_alphabet {
             eprintln!(
@@ -516,6 +675,12 @@ pub fn write_meme<W: Write>(
             } else {
                 row.clone()
             };
+            if strict {
+                validate_probability_row(
+                    &values,
+                    &format!("MEME output row for motif '{}'", motif.id),
+                )?;
+            }
             let line: Vec<String> = values.iter().map(|v| format!("{:.6}", v)).collect();
             writeln!(writer, "  {}", line.join("  "))?;
         }
@@ -527,7 +692,7 @@ pub fn write_meme<W: Write>(
 pub fn write_json<W: Write>(writer: &mut W, motifs: &[Motif]) -> Result<(), MotifError> {
     writeln!(writer, "{{")?;
     writeln!(writer, "  \"version\": \"1.0\",")?;
-    writeln!(writer, "  \"source\": \"meme\",")?;
+    writeln!(writer, "  \"format\": \"motif-bridge-json\",")?;
     writeln!(writer, "  \"motifs\": [")?;
     for (mi, motif) in motifs.iter().enumerate() {
         writeln!(writer, "    {{")?;
@@ -577,8 +742,9 @@ pub fn write_json<W: Write>(writer: &mut W, motifs: &[Motif]) -> Result<(), Moti
 #[cfg(test)]
 mod tests {
     use super::{
-        is_logodds, logodds_to_prob, read_homer, read_json, read_meme, write_homer, write_json,
-        write_meme, MatrixType,
+        is_logodds, logodds_to_prob, read_homer, read_homer_with_strict, read_json, read_meme,
+        read_meme_with_strict, write_homer, write_json, write_meme, write_meme_with_background,
+        MatrixType,
     };
     use std::io::Cursor;
 
@@ -684,6 +850,34 @@ letter-probability matrix: alength= 4 w= 1 nsites= 123 E= 0.5\n\
     }
 
     #[test]
+    fn write_meme_uses_background_vector_in_header() {
+        let source = ">M1\tdesc\t1\t0\t0\t0\n0.25\t0.25\t0.25\t0.25\n";
+        let motifs = read_homer(
+            Cursor::new(source),
+            0.01,
+            MatrixType::Probability,
+            "ACGT",
+            &[0.25],
+        )
+        .unwrap();
+        let mut out = Vec::new();
+
+        write_meme_with_background(
+            &mut out,
+            &motifs,
+            None,
+            None,
+            false,
+            Some(&[0.29, 0.21, 0.21, 0.29]),
+            false,
+        )
+        .unwrap();
+
+        let rendered = String::from_utf8(out).unwrap();
+        assert!(rendered.contains("A 0.290000 C 0.210000 G 0.210000 T 0.290000"));
+    }
+
+    #[test]
     fn json_round_trip_preserves_threshold_nsites_and_evalue_metadata() {
         let source = "MOTIF M1 desc\n\
 letter-probability matrix: alength= 4 w= 1 nsites= 123 E= 0.5\n\
@@ -702,6 +896,8 @@ letter-probability matrix: alength= 4 w= 1 nsites= 123 E= 0.5\n\
         )
         .unwrap();
 
+        assert!(rendered.contains("\"format\": \"motif-bridge-json\""));
+        assert!(!rendered.contains("\"source\""));
         assert!(rendered.contains("\"threshold\": 7.250000"));
         assert!(rendered.contains("\"nsites\": 123"));
         assert!(rendered.contains("\"evalue\": 0.500000"));
@@ -727,5 +923,48 @@ letter-probability matrix: alength= 4 w= 1 nsites= 123 E= 0.5\n\
 
         let rendered = String::from_utf8(out).unwrap();
         assert!(rendered.starts_with(">KEEP\tdesc\t9.500000\t"));
+    }
+
+    #[test]
+    fn strict_read_meme_rejects_invalid_probability_rows() {
+        let source = "MOTIF BAD\nletter-probability matrix:\n-0.10 0.40 0.40 0.30\n";
+
+        let err = read_meme_with_strict(Cursor::new(source), None, true).unwrap_err();
+
+        assert!(err.to_string().contains("values must be in [0, 1]"));
+    }
+
+    #[test]
+    fn strict_read_homer_rejects_auto_gray_zone() {
+        let source = ">GRAY\tdesc\t1\t0\t0\t0\n0.30\t0.30\t0.30\t0.15\n";
+
+        let err = read_homer_with_strict(
+            Cursor::new(source),
+            0.01,
+            MatrixType::Auto,
+            "ACGT",
+            &[0.25],
+            true,
+        )
+        .unwrap_err();
+
+        assert!(err.to_string().contains("auto-detection boundary"));
+    }
+
+    #[test]
+    fn strict_read_homer_rejects_probability_row_sum() {
+        let source = ">BAD\tdesc\t1\t0\t0\t0\n0.20\t0.20\t0.20\t0.20\n";
+
+        let err = read_homer_with_strict(
+            Cursor::new(source),
+            0.01,
+            MatrixType::Probability,
+            "ACGT",
+            &[0.25],
+            true,
+        )
+        .unwrap_err();
+
+        assert!(err.to_string().contains("must sum to 1.0"));
     }
 }

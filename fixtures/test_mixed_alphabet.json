@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "source": "meme",
+  "format": "motif-bridge-json",
   "motifs": [
     {
       "id": "MIXED_DNA",

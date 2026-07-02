@@ -578,8 +578,8 @@ try:
     if data.get('version') != '1.0':
         print('Missing version')
         sys.exit(1)
-    if data.get('source') != 'meme':
-        print('Missing source')
+    if data.get('format') != 'motif-bridge-json':
+        print('Missing motif-bridge-json format marker')
         sys.exit(1)
     motifs = data.get('motifs', [])
     if len(motifs) != 2:
@@ -1350,6 +1350,38 @@ if [ -n "$RUST_BIN" ]; then
     fi
 fi
 
+if python3 "$PYTHON/homer2meme.py" -i "$WORK_DIR/gray_auto.homer" --strict > "$WORK_DIR/py_gray_strict.out" 2> "$WORK_DIR/py_gray_strict.err"; then
+    fail "Python --strict rejects auto gray zone" "$(cat "$WORK_DIR/py_gray_strict.out")"
+else
+    if grep -q "auto-detection boundary" "$WORK_DIR/py_gray_strict.err"; then
+        pass "Python --strict rejects auto gray zone"
+    else
+        fail "Python --strict rejects auto gray zone" "$(cat "$WORK_DIR/py_gray_strict.err")"
+    fi
+fi
+
+if perl "$PERL/homer2meme.pl" -i "$WORK_DIR/gray_auto.homer" --strict > "$WORK_DIR/pl_gray_strict.out" 2> "$WORK_DIR/pl_gray_strict.err"; then
+    fail "Perl --strict rejects auto gray zone" "$(cat "$WORK_DIR/pl_gray_strict.out")"
+else
+    if grep -q "auto-detection boundary" "$WORK_DIR/pl_gray_strict.err"; then
+        pass "Perl --strict rejects auto gray zone"
+    else
+        fail "Perl --strict rejects auto gray zone" "$(cat "$WORK_DIR/pl_gray_strict.err")"
+    fi
+fi
+
+if [ -n "$RUST_BIN" ]; then
+    if "$RUST_BIN/homer2meme" -i "$WORK_DIR/gray_auto.homer" --strict > "$WORK_DIR/rs_gray_strict.out" 2> "$WORK_DIR/rs_gray_strict.err"; then
+        fail "Rust --strict rejects auto gray zone" "$(cat "$WORK_DIR/rs_gray_strict.out")"
+    else
+        if grep -q "auto-detection boundary" "$WORK_DIR/rs_gray_strict.err"; then
+            pass "Rust --strict rejects auto gray zone"
+        else
+            fail "Rust --strict rejects auto gray zone" "$(cat "$WORK_DIR/rs_gray_strict.err")"
+        fi
+    fi
+fi
+
 python3 "$PYTHON/homer2meme.py" -i "$FIXTURES/test.homer" --nsites 4000 --evalue 0.00001 > "$WORK_DIR/py_meta.meme" 2> "$WORK_DIR/py_meta.err"
 perl "$PERL/homer2meme.pl" -i "$FIXTURES/test.homer" --nsites 4000 --evalue 0.00001 > "$WORK_DIR/pl_meta.meme" 2> "$WORK_DIR/pl_meta.err"
 check_diff "$WORK_DIR/py_meta.meme" "$WORK_DIR/pl_meta.meme" "Python vs Perl nsites/evalue overrides"
@@ -1401,6 +1433,38 @@ else
     fail "--renormalize writes rows summing to 1" "$(cat "$WORK_DIR/renorm_check.txt")"
 fi
 
+if python3 "$PYTHON/homer2meme.py" -i "$WORK_DIR/unnormalized.homer" --input-format probability --strict > "$WORK_DIR/py_unnorm_strict.out" 2> "$WORK_DIR/py_unnorm_strict.err"; then
+    fail "Python --strict rejects unnormalized probability rows" "$(cat "$WORK_DIR/py_unnorm_strict.out")"
+else
+    if grep -q "must sum to 1.0" "$WORK_DIR/py_unnorm_strict.err"; then
+        pass "Python --strict rejects unnormalized probability rows"
+    else
+        fail "Python --strict rejects unnormalized probability rows" "$(cat "$WORK_DIR/py_unnorm_strict.err")"
+    fi
+fi
+
+if perl "$PERL/homer2meme.pl" -i "$WORK_DIR/unnormalized.homer" --input-format probability --strict > "$WORK_DIR/pl_unnorm_strict.out" 2> "$WORK_DIR/pl_unnorm_strict.err"; then
+    fail "Perl --strict rejects unnormalized probability rows" "$(cat "$WORK_DIR/pl_unnorm_strict.out")"
+else
+    if grep -q "must sum to 1.0" "$WORK_DIR/pl_unnorm_strict.err"; then
+        pass "Perl --strict rejects unnormalized probability rows"
+    else
+        fail "Perl --strict rejects unnormalized probability rows" "$(cat "$WORK_DIR/pl_unnorm_strict.err")"
+    fi
+fi
+
+if [ -n "$RUST_BIN" ]; then
+    if "$RUST_BIN/homer2meme" -i "$WORK_DIR/unnormalized.homer" --input-format probability --strict > "$WORK_DIR/rs_unnorm_strict.out" 2> "$WORK_DIR/rs_unnorm_strict.err"; then
+        fail "Rust --strict rejects unnormalized probability rows" "$(cat "$WORK_DIR/rs_unnorm_strict.out")"
+    else
+        if grep -q "must sum to 1.0" "$WORK_DIR/rs_unnorm_strict.err"; then
+            pass "Rust --strict rejects unnormalized probability rows"
+        else
+            fail "Rust --strict rejects unnormalized probability rows" "$(cat "$WORK_DIR/rs_unnorm_strict.err")"
+        fi
+    fi
+fi
+
 python3 "$PYTHON/meme2homer.py" -i "$FIXTURES/test.meme" -b 0.29,0.21,0.21,0.29 > "$WORK_DIR/py_bgvec.homer" 2> "$WORK_DIR/py_bgvec.err"
 perl "$PERL/meme2homer.pl" -i "$FIXTURES/test.meme" -b 0.29,0.21,0.21,0.29 > "$WORK_DIR/pl_bgvec.homer" 2> "$WORK_DIR/pl_bgvec.err"
 check_diff "$WORK_DIR/py_bgvec.homer" "$WORK_DIR/pl_bgvec.homer" "Python vs Perl meme2homer background vector"
@@ -1426,6 +1490,44 @@ check_diff "$WORK_DIR/py_logodds_bgvec.meme" "$WORK_DIR/pl_logodds_bgvec.meme" "
 if [ -n "$RUST_BIN" ]; then
     "$RUST_BIN/homer2meme" -i "$FIXTURES/test_logodds.homer" --input-format logodds -b 0.29,0.21,0.21,0.29 > "$WORK_DIR/rs_logodds_bgvec.meme" 2> "$WORK_DIR/rs_logodds_bgvec.err"
     check_diff "$WORK_DIR/py_logodds_bgvec.meme" "$WORK_DIR/rs_logodds_bgvec.meme" "Python vs Rust homer2meme background vector"
+fi
+
+if grep -q "A 0.290000 C 0.210000 G 0.210000 T 0.290000" "$WORK_DIR/py_logodds_bgvec.meme"; then
+    pass "homer2meme writes background vector to MEME header"
+else
+    fail "homer2meme writes background vector to MEME header" "$(grep -A1 'Background letter frequencies' "$WORK_DIR/py_logodds_bgvec.meme")"
+fi
+
+if python3 "$PYTHON/meme2homer.py" -i "$FIXTURES/test_negative.meme" --strict > "$WORK_DIR/py_neg_strict.out" 2> "$WORK_DIR/py_neg_strict.err"; then
+    fail "Python --strict rejects negative MEME values" "$(cat "$WORK_DIR/py_neg_strict.out")"
+else
+    if grep -q "values must be in \\[0, 1\\]" "$WORK_DIR/py_neg_strict.err"; then
+        pass "Python --strict rejects negative MEME values"
+    else
+        fail "Python --strict rejects negative MEME values" "$(cat "$WORK_DIR/py_neg_strict.err")"
+    fi
+fi
+
+if perl "$PERL/meme2homer.pl" -i "$FIXTURES/test_negative.meme" --strict > "$WORK_DIR/pl_neg_strict.out" 2> "$WORK_DIR/pl_neg_strict.err"; then
+    fail "Perl --strict rejects negative MEME values" "$(cat "$WORK_DIR/pl_neg_strict.out")"
+else
+    if grep -q "values must be in \\[0, 1\\]" "$WORK_DIR/pl_neg_strict.err"; then
+        pass "Perl --strict rejects negative MEME values"
+    else
+        fail "Perl --strict rejects negative MEME values" "$(cat "$WORK_DIR/pl_neg_strict.err")"
+    fi
+fi
+
+if [ -n "$RUST_BIN" ]; then
+    if "$RUST_BIN/meme2homer" -i "$FIXTURES/test_negative.meme" --strict > "$WORK_DIR/rs_neg_strict.out" 2> "$WORK_DIR/rs_neg_strict.err"; then
+        fail "Rust --strict rejects negative MEME values" "$(cat "$WORK_DIR/rs_neg_strict.out")"
+    else
+        if grep -q "values must be in \\[0, 1\\]" "$WORK_DIR/rs_neg_strict.err"; then
+            pass "Rust --strict rejects negative MEME values"
+        else
+            fail "Rust --strict rejects negative MEME values" "$(cat "$WORK_DIR/rs_neg_strict.err")"
+        fi
+    fi
 fi
 
 if python3 "$PYTHON/meme2homer.py" -i "$FIXTURES/test.meme" -b 0.5,0.5,0.5,0.5 > "$WORK_DIR/py_bad_bgsum.out" 2> "$WORK_DIR/py_bad_bgsum.err"; then

@@ -7,7 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-07-03
+
 ### Added
+- `--strict` mode for Python, Perl, and Rust CLIs to fail on malformed matrix rows, invalid probability values, probability row-sum drift, MEME `alength=`/alphabet conflicts, and ambiguous HOMER auto-detection rows.
+- `CITATION.cff` software citation metadata.
+- Python package URLs and `dev` optional dependencies in `pyproject.toml`.
 - `--version` flag for Python, Perl, and Rust CLIs.
 - Regression coverage for CLI version reporting, Perl `VERSION_FROM` parsing, and MEME `alength=` conflicts.
 - Python and Rust unit tests for core IC, log-odds, reverse-complement, trimming, and format-writer behavior.
@@ -18,6 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Regression coverage for zero-threshold warnings, auto-detection gray-zone warnings, MEME metadata overrides, row renormalization, background vectors, invalid background vectors, tied maximum scoring with asymmetric backgrounds, and JSON metadata preservation.
 
 ### Fixed
+- `homer2meme` now writes valid comma-separated background vectors from `-b` into the MEME `Background letter frequencies` header instead of always writing a uniform background.
+- JSON output now uses top-level `"format": "motif-bridge-json"` instead of hard-coding `"source": "meme"`.
 - Perl PROTEIN information-content calculations now use the 20-letter maximum entropy.
 - MEME `ALPHABET=` is auto-detected across Python, Perl, and Rust readers, with `--alphabet` retained as an override.
 - Rust MEME parsing now warns on malformed matrix rows, matching Python and Perl behavior.
@@ -28,7 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Perl package version discovery now reads `our $VERSION` from `perl_scripts/meme2homer.pl`.
 - Perl stderr is consistently emitted as UTF-8 across both converters.
 - MEME readers now warn on `alength=`/`ALPHABET=` width conflicts and keep the alphabet-derived width instead of dropping valid rows.
-- Python CLI version reporting now reads installed package metadata when available, using the source-tree fallback only when metadata is absent.
+- Python CLI version reporting now prefers the source-tree `pyproject.toml` version when running from a checkout, avoiding stale editable-install metadata.
 - Shell regression checks now run inline Python validators inside `if` conditions so failures are reported by the suite under `set -euo pipefail`.
 - Version regression tests compare CLI output to package metadata instead of hard-coding one release number.
 - Background vectors now reject length mismatches, values outside `(0,1]`, and sums farther than `1e-3` from `1.0` instead of silently affecting thresholds or log-odds restoration.

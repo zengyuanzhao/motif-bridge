@@ -126,6 +126,14 @@ def parse_args() -> argparse.Namespace:
             "threshold metadata, so this is mainly for library/JSON-derived motif objects."
         ),
     )
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help=(
+            "Fail on malformed matrix rows, invalid probability values, "
+            "or row sums outside tolerance."
+        ),
+    )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     return parser.parse_args()
 
@@ -170,7 +178,7 @@ def main() -> None:
     fh = None
     try:
         fh = open_input(args.i)
-        raw_motifs = read_meme(fh, alphabet_override=args.alphabet)
+        raw_motifs = read_meme(fh, alphabet_override=args.alphabet, strict=args.strict)
         processed_motifs = process_motifs(raw_motifs, args)
 
         if args.format == "json":
