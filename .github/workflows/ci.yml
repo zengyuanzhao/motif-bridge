@@ -109,14 +109,17 @@ jobs:
         with:
           python-version: "3.10"
 
-      - name: Install ruff
-        run: pip install ruff==0.9.6
+      - name: Install Python lint dependencies
+        run: pip install ruff==0.9.6 mypy==1.14.1
 
       - name: Run ruff check
         run: ruff check python_scripts/ motif_bridge/ tests/
 
       - name: Run ruff format check
         run: ruff format --check python_scripts/ motif_bridge/ tests/
+
+      - name: Run mypy
+        run: mypy motif_bridge python_scripts
 
   perl-lint:
     runs-on: ubuntu-latest

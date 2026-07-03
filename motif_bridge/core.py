@@ -1,8 +1,8 @@
 import math
 import sys
-from typing import Any, Dict, List, Optional, Sequence, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
-Background = Union[float, Sequence[float]]
+Background = Union[float, List[float], Tuple[float, ...]]
 
 
 def _background_values(background: Background, width: int) -> List[float]:
@@ -108,7 +108,7 @@ class Motif:
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialize motif to dictionary."""
-        data = {
+        data: Dict[str, Any] = {
             "id": self.id,
             "description": self.description,
             "matrix": [row[:] for row in self.matrix],
@@ -125,11 +125,17 @@ class Motif:
     def calculate_score(self, bg: Background, t_offset: float, renormalize: bool = False) -> float:
         """Calculate HOMER log-odds threshold from a probability matrix."""
         score = 0.0
+        backgrounds: List[float] = []
         for row in self.matrix:
             if not row:
                 continue
             values = _renormalized(row) if renormalize else row
-            backgrounds = _background_values(bg, len(values))
+            if not backgrounds:
+                backgrounds = _background_values(bg, len(values))
+            elif len(backgrounds) != len(values):
+                raise ValueError(
+                    f"background length {len(backgrounds)} does not match row width {len(values)}"
+                )
             best_idx = max(range(len(values)), key=values.__getitem__)
             max_p = values[best_idx]
             if max_p > 0:

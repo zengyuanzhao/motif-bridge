@@ -13,27 +13,12 @@ Requires: Python 3.8+, no external dependencies
 """
 
 import argparse
-import gzip
 import sys
+from contextlib import suppress
 
 from motif_bridge import __version__
 from motif_bridge.io import read_meme, write_homer, write_json
-
-
-def background_prob(value: str):
-    parts = value.split(",")
-    values = []
-    for part in parts:
-        try:
-            v = float(part)
-        except ValueError as exc:
-            raise argparse.ArgumentTypeError(f"Invalid -b value: {value}") from exc
-        if not (0 < v <= 1):
-            raise argparse.ArgumentTypeError("-b values must be in (0, 1].")
-        values.append(v)
-    if len(values) > 1 and abs(sum(values) - 1.0) > 1e-3:
-        raise argparse.ArgumentTypeError("-b vector must sum to 1.0.")
-    return values if len(values) > 1 else values[0]
+from python_scripts._cli import background_prob, open_input
 
 
 def parse_args() -> argparse.Namespace:
@@ -138,16 +123,6 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def open_input(path: str):
-    """Open plain, gzip, or stdin input."""
-    if path == "-":
-        return sys.stdin
-    elif path.endswith(".gz"):
-        return gzip.open(path, "rt", encoding="utf-8")
-    else:
-        return open(path, "r", encoding="utf-8")
-
-
 def process_motifs(motifs, args):
     """Filter and apply operations to motifs."""
     for m in motifs:
@@ -200,10 +175,8 @@ def main() -> None:
         pass
     finally:
         if fh is not None and args.i != "-":
-            try:
+            with suppress(Exception):
                 fh.close()
-            except Exception:
-                pass
 
 
 if __name__ == "__main__":

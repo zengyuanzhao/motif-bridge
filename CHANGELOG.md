@@ -7,8 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Mypy configuration and CI type-checking for Python modules and CLI entry points.
+- Zenodo DOI references in `README.md` and `CITATION.cff`.
+
 ### Changed
-- Added Zenodo DOI references to `README.md` and `CITATION.cff`.
+- Shared Python CLI helpers for background parsing and input opening.
+- Expanded Ruff lint selection to include bugbear, pyupgrade, and simplify rules.
+- Reused prevalidated background vectors during score and log-odds conversions.
 
 ## [0.3.1] - 2026-07-03
 

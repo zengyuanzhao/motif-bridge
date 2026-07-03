@@ -48,10 +48,14 @@ def _validate_probability_row(row: List[float], context: str) -> None:
 
 
 def logodds_to_prob(
-    row: List[float], pseudocount: float = 0.01, background: Background = 0.25
+    row: List[float],
+    pseudocount: float = 0.01,
+    background: Background = 0.25,
+    bg_values: Optional[List[float]] = None,
 ) -> List[float]:
     """Convert a HOMER log-odds row to a probability row."""
-    bg_values = _background_values(background, len(row))
+    if bg_values is None:
+        bg_values = _background_values(background, len(row))
 
     raw = [2**v * bg_values[i] for i, v in enumerate(row)]
     total = sum(raw) + pseudocount * len(raw)
@@ -228,6 +232,7 @@ def read_homer(
     matrix: List[List[float]] = []
 
     expected_cols = len(_alphabet_letters(alphabet))
+    background_values = _background_values(background, expected_cols)
 
     for raw_line in fh:
         line = raw_line.rstrip("\n")
@@ -277,7 +282,7 @@ def read_homer(
             sys.stderr.write(message)
             continue
         if is_logodds_row(row, input_format, strict=strict):
-            row = logodds_to_prob(row, pseudocount, background)
+            row = logodds_to_prob(row, pseudocount, background, background_values)
         elif strict:
             _validate_probability_row(row, f"HOMER probability row for motif '{motif_id}'")
         matrix.append(row)
@@ -323,6 +328,7 @@ def read_json(
             continue
 
         expected_cols = len(_alphabet_letters(alphabet))
+        background_values = _background_values(background, expected_cols)
         processed_matrix = []
         for row in matrix:
             if not isinstance(row, list):
@@ -336,7 +342,7 @@ def read_json(
             except (TypeError, ValueError):
                 message = "Warning: skipping malformed matrix row (expected numeric values)\n"
                 if strict:
-                    raise ValueError(_without_warning_prefix(message).rstrip())
+                    raise ValueError(_without_warning_prefix(message).rstrip()) from None
                 sys.stderr.write(message)
                 continue
             if len(row_values) != expected_cols:
@@ -349,7 +355,7 @@ def read_json(
                 sys.stderr.write(message)
                 continue
             if is_logodds_row(row_values, input_format, strict=strict):
-                row_values = logodds_to_prob(row_values, pseudocount, background)
+                row_values = logodds_to_prob(row_values, pseudocount, background, background_values)
             elif strict:
                 _validate_probability_row(row_values, f"JSON probability row for motif '{mid}'")
             processed_matrix.append(row_values)
@@ -440,6 +446,7 @@ def write_meme(
 
 def write_json(motifs: Iterable[Motif], fh: TextIO) -> None:
     """Write an iterable of Motif objects to a file-like object in JSON format."""
+    # Keep manual JSON writing so matrix values stay byte-stable at .6f across languages.
     motifs_list = list(motifs)
     fh.write("{\n")
     fh.write('  "version": "1.0",\n')
